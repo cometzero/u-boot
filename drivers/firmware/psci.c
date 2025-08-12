@@ -261,7 +261,9 @@ void __efi_runtime EFIAPI efi_reset_system(enum efi_reset_type reset_type,
 					   unsigned long data_size,
 					   void *reset_data)
 {
-	if (reset_type == EFI_RESET_COLD ||
+	if (reset_type == EFI_RESET_WARM && reset2_supported) {
+		invoke_psci_fn(PSCI_FN_NATIVE(1_1, SYSTEM_RESET2), 0, 0, 0);
+	} else if (reset_type == EFI_RESET_COLD ||
 	    reset_type == EFI_RESET_WARM ||
 	    reset_type == EFI_RESET_PLATFORM_SPECIFIC) {
 		invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
