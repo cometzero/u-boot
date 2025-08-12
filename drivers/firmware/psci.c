@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2017 Masahiro Yamada <yamada.masahiro@socionext.com>
+ * Copyright (C) 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * Based on drivers/firmware/psci.c from Linux:
  * Copyright (C) 2015 ARM Limited
@@ -43,8 +44,10 @@
 
 #if CONFIG_IS_ENABLED(EFI_LOADER)
 int __efi_runtime_data psci_method;
+bool __efi_runtime_data reset2_supported;
 #else
 int psci_method __section(".data");
+bool reset2_supported __section(".data");
 #endif
 
 unsigned long __efi_runtime invoke_psci_fn
@@ -229,6 +232,8 @@ static int psci_probe(struct udevice *dev)
 		return -EINVAL;
 	}
 
+	reset2_supported = psci_is_system_reset2_supported();
+
 	return bind_smccc_features(dev, psci_method);
 }
 
@@ -278,11 +283,7 @@ void reset_misc(void)
 
 void psci_sys_reset(u32 type)
 {
-	bool reset2_supported;
-
 	do_psci_probe();
-
-	reset2_supported = psci_is_system_reset2_supported();
 
 	if (type == SYSRESET_WARM && reset2_supported) {
 		/*
