@@ -586,6 +586,14 @@ out:
  */
 int fwu_accept_image(efi_guid_t *img_type_id, u32 bank)
 {
+	/*
+	 * In case of Arm PSA accepting images is either
+	 * at ExitBootServices() or in the OS. So, let's skip setting the
+	 * acceptance bit (not used in Arm PSA)
+	 */
+	if (IS_ENABLED(CONFIG_FWU_ARM_PSA))
+		return EFI_SUCCESS;
+
 	return fwu_clrset_image_accept(img_type_id, bank,
 				       IMAGE_ACCEPT_SET);
 }
@@ -606,6 +614,14 @@ int fwu_accept_image(efi_guid_t *img_type_id, u32 bank)
  */
 int fwu_clear_accept_image(efi_guid_t *img_type_id, u32 bank)
 {
+	/*
+	 * In case of Arm PSA accepting images is either
+	 * at ExitBootServices() or in the OS. So, let's skip clearing the
+	 * acceptance bit (not used in Arm PSA)
+	 */
+	if (IS_ENABLED(CONFIG_FWU_ARM_PSA))
+		return EFI_SUCCESS;
+
 	return fwu_clrset_image_accept(img_type_id, bank,
 				       IMAGE_ACCEPT_CLEAR);
 }

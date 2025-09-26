@@ -704,8 +704,9 @@ static efi_status_t efi_capsule_update_firmware(
 				goto out;
 			}
 
-			log_debug("%s the accepted bit for Image %pUs\n",
-				  fw_accept_os ? "Cleared" : "Set",
+			log_debug("%s %s the accepted bit for Image %pUs\n",
+				  IS_ENABLED(CONFIG_FWU_ARM_PSA) ? "PSA will" : "",
+				  fw_accept_os ? "clear" : "set",
 				  image_type_id);
 		}
 
