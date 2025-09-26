@@ -185,6 +185,7 @@ The following features are provided:
     - FFA_INTERRUPT
     - FFA_MSG_SEND_DIRECT_REQ
     - FFA_MSG_SEND_DIRECT_RESP
+    - FFA_MEM_SHARE
 
 - Support for the 64-bit version of the following ABIs:
 
@@ -203,6 +204,7 @@ The following features are provided:
     - ffa_partition_info_get
     - ffa_sync_send_receive
     - ffa_rxtx_unmap
+    - ffa_memory_share
 
 - FF-A bus discovery makes sure FF-A framework is responsive and compatible
   with the driver

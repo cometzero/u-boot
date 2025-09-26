@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright 2022-2023 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ * Copyright 2022-2023, 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * Authors:
  *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
@@ -84,6 +84,7 @@ static const struct ffa_bus_ops ffa_ops = {
 	.partition_info_get = ffa_get_partitions_info_hdlr,
 	.sync_send_receive = ffa_msg_send_direct_req_hdlr,
 	.rxtx_unmap = ffa_unmap_rxtx_buffers_hdlr,
+	.memory_share = ffa_memory_share_hdlr,
 };
 
 /* Registering the FF-A driver as an SMCCC feature driver */

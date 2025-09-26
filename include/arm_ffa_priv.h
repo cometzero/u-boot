@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
- * Copyright 2022-2023 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ * Copyright 2022-2023, 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * Authors:
  *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
@@ -132,10 +132,11 @@ enum ffa_abis {
 	FFA_RUN                   = 0x6d,
 	FFA_MSG_SEND_DIRECT_REQ   = 0x6f,
 	FFA_MSG_SEND_DIRECT_RESP  = 0x70,
+	FFA_MEM_SHARE             = 0x73,
 
 	/* To be updated when adding new FFA IDs */
 	FFA_FIRST_ID              = FFA_ERROR, /* Lowest number ID */
-	FFA_LAST_ID               = FFA_MSG_SEND_DIRECT_RESP, /* Highest number ID */
+	FFA_LAST_ID               = FFA_MEM_SHARE, /* Highest number ID */
 };
 
 enum ffa_abi_errcode {
@@ -218,6 +219,153 @@ struct ffa_priv {
 	struct ffa_partitions partitions;
 	struct ffa_rxtxpair pair;
 };
+
+/* FF-A memory management ABIs data structures */
+
+/**
+ * struct ffa_mem_region - Lend, donate or share memory transaction descriptor
+ * @sender_id: The ID of the VM/owner
+ * @attributes: Memory region attributes
+ * @reserved1: Reserved
+ * @flags: Flags to control behaviour of the transaction
+ * @handle: A globally-unique ID
+ * @tag: An implementation defined value associated with the receiver
+ *       and the memory region
+ * @reserved2: Reserved
+ * @ep_count: The number of `ffa_mem_region_attributes` entries
+ *
+ * Specifies the data structure that must be used by the Owner/Lender and a
+ * Borrower/Receiver in a transaction to donate, lend or share a memory region.
+ * It specifies the memory region description, properties and other transaction
+ * attributes in an invocation of the following ABIs.
+ * FFA_MEM_DONATE.
+ * FFA_MEM_LEND.
+ * FFA_MEM_SHARE.
+ * FFA_MEM_RETRIEVE_REQ.
+ * FFA_MEM_RETRIEVE_RESP.
+ * For more details, please refer to the Table 5.19 in the FF-A specification
+ * v1.0.
+ * The interpretation of some fields depends on the ABI this structure is used
+ * with. This variance in behavior is also specified in the Table 5.19.
+ * This structure was taken from Linux and adapted to FF-A v1.0.
+ */
+struct ffa_mem_region {
+	/* The ID of the VM/owner which originally sent the memory region */
+	u16 sender_id;
+#define FFA_MEM_NORMAL		BIT(5)
+#define FFA_MEM_DEVICE		BIT(4)
+
+#define FFA_MEM_WRITE_BACK	(3 << 2)
+#define FFA_MEM_NON_CACHEABLE	BIT(2)
+
+#define FFA_DEV_nGnRnE		(0 << 2)
+#define FFA_DEV_nGnRE		BIT(2)
+#define FFA_DEV_nGRE		(2 << 2)
+#define FFA_DEV_GRE		(3 << 2)
+
+#define FFA_MEM_NON_SHAREABLE	(0)
+#define FFA_MEM_OUTER_SHAREABLE	(2)
+#define FFA_MEM_INNER_SHAREABLE	(3)
+	/* Memory region attributes */
+	u8 attributes;
+
+	u8 reserved1;
+
+/*
+ * Clear memory region contents after unmapping it from the sender and
+ * before mapping it for any receiver.
+ */
+#define FFA_MEM_CLEAR			BIT(0)
+/*
+ * Whether the hypervisor may time slice the memory sharing or retrieval
+ * operation.
+ */
+#define FFA_TIME_SLICE_ENABLE		BIT(1)
+
+#define FFA_MEM_RETRIEVE_TYPE_IN_RESP	(0 << 3)
+#define FFA_MEM_RETRIEVE_TYPE_SHARE	BIT(3)
+#define FFA_MEM_RETRIEVE_TYPE_LEND	(2 << 3)
+#define FFA_MEM_RETRIEVE_TYPE_DONATE	(3 << 3)
+
+#define FFA_MEM_RETRIEVE_ADDR_ALIGN_HINT	BIT(9)
+#define FFA_MEM_RETRIEVE_ADDR_ALIGN(x)		((x) << 5)
+	/* Flags to control behaviour of the transaction. */
+	u32 flags;
+#define HANDLE_LOW_MASK		GENMASK_ULL(31, 0)
+#define HANDLE_HIGH_MASK	GENMASK_ULL(63, 32)
+#define HANDLE_LOW(x)		((u32)(FIELD_GET(HANDLE_LOW_MASK, (x))))
+#define	HANDLE_HIGH(x)		((u32)(FIELD_GET(HANDLE_HIGH_MASK, (x))))
+
+#define PACK_HANDLE(l, h)		\
+	(FIELD_PREP(HANDLE_LOW_MASK, (l)) | FIELD_PREP(HANDLE_HIGH_MASK, (h)))
+	/*
+	 * A globally-unique ID assigned by the hypervisor for a region
+	 * of memory being sent between VMs.
+	 */
+	u64 handle;
+	/*
+	 * An implementation defined value associated with the receiver and the
+	 * memory region.
+	 */
+	u64 tag;
+
+	u32 reserved2;
+
+	/*
+	 * The number of `ffa_mem_region_attributes` entries included in this
+	 * transaction.
+	 */
+	u32 ep_count;
+};
+
+/**
+ * struct ffa_mem_region_addr_range - Constituent memory region descriptor
+ * @address: The base IPA of the constituent memory region
+ * @pg_cnt: The number of 4 kiB pages
+ * @reserved: Reserved
+ *
+ * Each descriptor specifies the base address and size of a virtually or
+ * physically contiguous memory region.
+ * For more details, please refer to Table 5.14 in the FF-A
+ * specification v1.0.
+ * This structure was taken from Linux.
+ */
+struct ffa_mem_region_addr_range {
+	/* The base IPA of the constituent memory region, aligned to 4 kiB */
+	u64 address;
+	/* The number of 4 kiB pages in the constituent memory region. */
+	u32 pg_cnt;
+	u32 reserved;
+};
+
+/**
+ * struct ffa_composite_mem_region - Composite memory region descriptor
+ * @total_pg_cnt: The total number of 4 kiB pages included in this memory region
+ * @addr_range_cnt: The number of constituents included
+ * @reserved: Reserved
+ * @constituents: An array of `addr_range_cnt` memory region constituents
+ *
+ * For more details, please refer to Table 5.13 in the FF-A
+ * specification v1.0.
+ *
+ * This structure was taken from Linux.
+ */
+struct ffa_composite_mem_region {
+	/*
+	 * The total number of 4 kiB pages included in this memory region. This
+	 * must be equal to the sum of page counts specified in each
+	 * `struct ffa_mem_region_addr_range`.
+	 */
+	u32 total_pg_cnt;
+	/* The number of constituents included in this memory region range */
+#define FFA_MEM_CONSTITUENTS		(1)
+	u32 addr_range_cnt;
+	u64 reserved;
+	/** An array of `addr_range_cnt` memory region constituents. */
+	struct ffa_mem_region_addr_range constituents[];
+};
+
+/* Functions prototypes */
 
 /**
  * ffa_get_version_hdlr() - FFA_VERSION handler function

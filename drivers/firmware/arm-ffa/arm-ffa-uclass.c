@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright 2022-2023 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ * Copyright 2022-2023, 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * Authors:
  *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
@@ -93,6 +93,20 @@ static struct ffa_abi_errmap err_msg_map[FFA_ERRMAP_COUNT] = {
 			"NO_MEMORY: Not enough memory",
 			[DENIED] =
 			"DENIED: Buffer pair already registered",
+		},
+	},
+	[FFA_ID_TO_ERRMAP_ID(FFA_MEM_SHARE)] = {
+		{
+			[ABORTED] =
+			"ABORTED: Failure in the transmission of fragments or in time slicing",
+			[INVALID_PARAMETERS] =
+			"INVALID_PARAMETERS: Validation failed for the Memory Transaction or the Endpoint memory access descriptor",
+			[NO_MEMORY] =
+			"NO_MEMORY: Insufficient memory to complete this operation",
+			[BUSY] =
+			"BUSY: The TX buffer is busy",
+			[DENIED] =
+			"DENIED: Memory region ownership, permission, access or attributes error",
 		},
 	},
 };
@@ -929,6 +943,177 @@ int ffa_msg_send_direct_req_hdlr(struct udevice *dev, u16 dst_part_id,
 	return ffa_to_std_errno(ffa_errno);
 }
 
+/**
+ * ffa_mem_desc_offset() - helper for descriptors offset calculation
+ * @count: An integer defining the number of Endpoint memory access descriptors
+ *
+ * Calculate the offset of the Endpoint memory access descriptor and
+ * the Composite memory region descriptor.
+ *
+ * Return:
+ *
+ * The descriptor offset.
+ */
+static inline u32 ffa_mem_desc_offset(int count)
+{
+	u32 offset = count * sizeof(struct ffa_mem_region_attributes);
+
+	offset += sizeof(struct ffa_mem_region);
+
+	return offset;
+}
+
+/**
+ * ffa_setup_and_transmit() - set up the memory and transmit data using FF-A
+ * @dev: The FF-A bus device
+ * @func_id: An integer identifying the function
+ * @buffer: A pointer to the data to be transmitted (FF-A TX buffer)
+ * @args: A pointer to a structure containing additional user arguments
+ *
+ * Setup the memory transaction related to the access to a specified
+ * memory region.
+ * Currently we support FFA_MEM_SHARE only.
+ *
+ * Return:
+ *
+ * 0 on success. . Otherwise, failure
+ */
+static int ffa_setup_and_transmit(struct udevice *dev, u32 func_id,
+				  void *buffer, struct ffa_mem_ops_args *args)
+{
+	ffa_value_t res = {0};
+	int ffa_errno;
+	u32 composite_offset;
+	u32 total_length;
+	struct ffa_mem_region *mem_region = buffer;
+	struct ffa_composite_mem_region *composite;
+	struct ffa_mem_region_addr_range *constituent;
+	struct ffa_mem_region_attributes *ep_mem_access;
+	u32 idx;
+	struct ffa_priv *uc_priv;
+
+	uc_priv = dev_get_uclass_priv(dev);
+
+	mem_region->tag = args->tag;
+	mem_region->flags = args->flags;
+	mem_region->sender_id = uc_priv->id;
+
+	/*
+	 * These attributes are only valid for FFA_MEM_SHARE.
+	 * They are not valid for FFA_MEM_LEND (no implemented).
+	 */
+	if (func_id == FFA_MEM_SHARE)
+		mem_region->attributes = FFA_MEM_NORMAL | FFA_MEM_WRITE_BACK
+				 | FFA_MEM_INNER_SHAREABLE;
+	else
+		mem_region->attributes = 0;
+
+	mem_region->handle = 0;
+	mem_region->ep_count = args->nattrs;
+	mem_region->reserved1 = 0;
+	mem_region->reserved2 = 0;
+
+	ep_mem_access = buffer + ffa_mem_desc_offset(0);
+
+	composite_offset = ffa_mem_desc_offset(args->nattrs);
+
+	/* Multiple borrowers supported */
+	for (idx = 0; idx < args->nattrs; idx++, ep_mem_access++) {
+		ep_mem_access->receiver = args->attrs[idx].receiver;
+		ep_mem_access->attrs = args->attrs[idx].attrs;
+		ep_mem_access->composite_off = composite_offset;
+		ep_mem_access->flag = 0;
+		ep_mem_access->reserved = 0;
+	}
+
+	/* Only one Composite and one Constituent memory region supported */
+	composite = buffer + composite_offset;
+	composite->total_pg_cnt = args->pg_cnt;
+	composite->addr_range_cnt = FFA_MEM_CONSTITUENTS;
+	composite->reserved = 0;
+
+	constituent = &composite->constituents[0];
+	constituent->address = map_to_sysmem(args->address);
+	constituent->pg_cnt = args->pg_cnt;
+	constituent->reserved = 0;
+
+	total_length = composite_offset + sizeof(*composite) +
+		sizeof(*constituent);
+
+	/*
+	 * Note: Time slicing is not supported.
+	 * It's only available to EL1 and S-EL1 endpoints.
+	 */
+
+	invoke_ffa_fn((ffa_value_t){
+			.a0 = FFA_SMC_32(func_id),
+			.a1 = total_length,
+			.a2 = total_length,
+			.a3 = 0, /* the TX buffer is used */
+			.a4 = 0, /* the TX buffer is used */
+			},
+			&res
+	);
+
+	if (res.a0 != FFA_SMC_32(FFA_SUCCESS)) {
+		ffa_errno = res.a2;
+		ffa_print_error_log(func_id, ffa_errno);
+		return ffa_to_std_errno(ffa_errno);
+	}
+
+	args->g_handle = PACK_HANDLE(res.a2, res.a3);
+	return 0;
+}
+
+/**
+ * ffa_memory_ops() - wrapper for the memory management ABIs
+ * @dev: The FF-A bus device
+ * @func_id: An integer identifying the function
+ * @args: A pointer to a structure containing additional user arguments
+ *
+ * Verify the use of the TX buffer then call ffa_setup_and_transmit().
+ * Currently we support FFA_MEM_SHARE only.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+static int ffa_memory_ops(struct udevice *dev, u32 func_id,
+			  struct ffa_mem_ops_args *args)
+{
+	void *buffer;
+	struct ffa_priv *uc_priv = dev_get_uclass_priv(dev);
+
+	if (!args->use_txbuf) {
+		log_err("only TX buffer supported\n");
+		return -EPROTONOSUPPORT;
+	}
+
+	buffer = uc_priv->pair.txbuf;
+
+	if (!buffer || !args->attrs || !args->address)
+		return -EINVAL;
+
+	return ffa_setup_and_transmit(dev, func_id, buffer, args);
+}
+
+/**
+ * ffa_memory_share_hdlr() - FFA_MEM_SHARE handler function
+ * @dev: The FF-A bus device
+ * @args: A pointer to a structure containing additional user arguments
+ *
+ * Implement FFA_MEM_SHARE FF-A function
+ * to grant access to a memory region to one or more Borrowers.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_share_hdlr(struct udevice *dev, struct ffa_mem_ops_args *args)
+{
+	return ffa_memory_ops(dev, FFA_MEM_SHARE, args);
+}
+
 /* FF-A driver operations (used by clients for communicating with FF-A)*/
 
 /**
@@ -1004,6 +1189,31 @@ int ffa_rxtx_unmap(struct udevice *dev)
 		return -ENOSYS;
 
 	return ops->rxtx_unmap(dev);
+}
+
+/**
+ * ffa_memory_share() - FFA_MEM_SHARE driver operation
+ * @dev: The FF-A bus device
+ * @args: A pointer to a structure containing additional user arguments
+ *
+ * Driver operation for FFA_MEM_SHARE.
+ * Please see ffa_memory_share_hdlr() description for more details.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_share(struct udevice *dev, struct ffa_mem_ops_args *args)
+{
+	struct ffa_bus_ops *ops = ffa_get_ops(dev);
+
+	if (!args)
+		return -EINVAL;
+
+	if (!ops->memory_share)
+		return -ENOSYS;
+
+	return ops->memory_share(dev, args);
 }
 
 /**

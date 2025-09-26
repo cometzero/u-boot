@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
- * Copyright 2022-2023 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ * Copyright 2022-2023, 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * Authors:
  *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
@@ -82,10 +82,79 @@ struct ffa_send_direct_data {
 struct udevice;
 
 /**
+ * struct ffa_mem_region_attributes - Endpoint memory access descriptor
+ * @receiver: The ID of the VM to which the memory is being given or shared
+ * @attrs: Memory region permissions
+ * @flag: Flags for memory regions with multiple borrowers
+ * @composite_off: Offset in bytes
+ * @reserved: Reserved field
+ *
+ * The data structure used in memory management transactions to create an
+ * association between an endpoint, memory access permissions and a composite
+ * memory region description.
+ *
+ * For more details, please refer to Table 5.16 and Table 5.15 in the FF-A
+ * specification v1.0.
+ *
+ * This structure was taken from Linux.
+ */
+struct ffa_mem_region_attributes {
+	/* The ID of the VM to which the memory is being given or shared. */
+	u16 receiver;
+	/*
+	 * The permissions with which the memory region should be mapped in the
+	 * receiver's page table.
+	 */
+#define FFA_MEM_EXEC		BIT(3)
+#define FFA_MEM_NO_EXEC		BIT(2)
+#define FFA_MEM_RW		BIT(1)
+#define FFA_MEM_RO		BIT(0)
+	u8 attrs;
+	/*
+	 * Flags used during FFA_MEM_RETRIEVE_REQ and FFA_MEM_RETRIEVE_RESP
+	 * for memory regions with multiple borrowers.
+	 */
+#define FFA_MEM_RETRIEVE_SELF_BORROWER	BIT(0)
+	u8 flag;
+	/*
+	 * Offset in bytes from the start of the outer `ffa_memory_region` to
+	 * an `struct ffa_mem_region_addr_range`.
+	 */
+	u32 composite_off;
+	u64 reserved;
+};
+
+/**
+ * struct ffa_mem_ops_args - User arguments to the memory management ABIs
+ * @use_txbuf:	Whether to use the TX buffer for the memory transaction
+ * @nattrs:	Number of the borrowers
+ * @flags:	Memory transaction flags
+ * @tag:	The tag associated with the transaction
+ * @g_handle:	Globally unique Handle to identify the memory region (out)
+ * @address:	Virtual address of the memory region
+ * @pg_cnt:	Number of pages
+ * @attrs:	Memory access permissions of each borrower
+ *
+ * The structured filled by the user and passed to the memory
+ * management ABIs (e.g: FFA_MEM_SHARE)
+ */
+struct ffa_mem_ops_args {
+	bool use_txbuf;
+	u32 nattrs;
+	u32 flags;
+	u64 tag;
+	u64 g_handle;
+	void *address;
+	u32 pg_cnt;
+	struct ffa_mem_region_attributes *attrs;
+};
+
+/**
  * struct ffa_bus_ops - Operations for FF-A
  * @partition_info_get:	callback for the FFA_PARTITION_INFO_GET
  * @sync_send_receive:	callback for the FFA_MSG_SEND_DIRECT_REQ
  * @rxtx_unmap:	callback for the FFA_RXTX_UNMAP
+ * @memory_share:	callback for the FFA_MEM_SHARE
  *
  * The data structure providing all the operations supported by the driver.
  * This structure is EFI runtime resident.
@@ -97,6 +166,7 @@ struct ffa_bus_ops {
 				 struct ffa_send_direct_data *msg,
 				 bool is_smc64);
 	int (*rxtx_unmap)(struct udevice *dev);
+	int (*memory_share)(struct udevice *dev, struct ffa_mem_ops_args *args);
 };
 
 #define ffa_get_ops(dev)        ((struct ffa_bus_ops *)(dev)->driver->ops)
@@ -195,6 +265,30 @@ int ffa_partition_info_get(struct udevice *dev, const char *uuid_str,
  */
 int ffa_get_partitions_info_hdlr(struct udevice *dev, const char *uuid_str,
 				 u32 *sp_count, struct ffa_partition_desc **sp_descs);
+
+/**
+ * ffa_memory_share() - FFA_MEM_SHARE driver operation
+ * @dev: The FF-A bus device
+ * @args: A pointer to a structure containing additional user arguments
+ * Please see ffa_memory_share_hdlr() description for more details.
+ *
+ * Return: 0 on success. Otherwise, failure
+ */
+int ffa_memory_share(struct udevice *dev, struct ffa_mem_ops_args *args);
+
+/**
+ * ffa_memory_share_hdlr() - FFA_MEM_SHARE handler function
+ * @dev: The FF-A bus device
+ * @args: A pointer to a structure containing additional user arguments
+ *
+ * Implement FFA_MEM_SHARE FF-A function
+ * to grant access to a memory region to one or more Borrowers.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_share_hdlr(struct udevice *dev, struct ffa_mem_ops_args *args);
 
 struct ffa_priv;
 
