@@ -8,6 +8,7 @@
  */
 #include <arm_ffa.h>
 #include <dm.h>
+#include <fwu.h>
 #include <fwu_arm_psa.h>
 #include <fwu.h>
 #include <log.h>
@@ -111,6 +112,14 @@ static struct fwu_abi_errmap err_msg_map[FWU_ERRMAP_COUNT] = {
 		{
 			[FWU_DENIED] =
 			"FWU_DENIED: The system is not in a Staging state",
+		},
+	},
+	[FWU_ID_TO_ERRMAP_ID(FWU_ACCEPT_IMAGE)] = {
+		{
+			[FWU_UNKNOWN] =
+			"FWU_UNKNOWN: Image with type=image_type_guid is not managed by the Update Agent",
+			[FWU_DENIED] =
+			"FWU_DENIED: The system has not booted with the active bank, or the image cannot be accepted before being activated",
 		},
 	},
 };
@@ -680,6 +689,35 @@ static int fwu_write_stream(u32 handle, const u8 *payload, u32 payload_size)
 }
 
 /**
+ * fwu_accept() -  fwu_accept_image ABI
+ *
+ * @guid: GUID of the image to be accepted
+ *
+ * Description: Sets the status of the firmware image, with a given GUID
+ * to "accepted" in the active firmware bank.
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+static int fwu_accept(const efi_guid_t *guid)
+{
+	struct fwu_accept_image_args *args = g_fwu_buf;
+	struct fwu_accept_image_resp *resp = g_fwu_buf;
+	char *svc_name = "FWU_ACCEPT_IMAGE";
+
+	if (!guid)
+		return -EINVAL;
+
+	/* Filling the arguments in the shared buffer */
+	args->function_id = FWU_ACCEPT_IMAGE;
+
+	guidcpy(&args->image_type_guid, guid);
+
+	/* Executing the FWU ABI through the FF-A bus */
+	return fwu_invoke_svc(args->function_id, svc_name,
+			     sizeof(*args), sizeof(*resp), NULL);
+}
+
+/**
  * fwu_update_image() - Update an image
  *
  * @image: Pointer to the payload to write
@@ -1017,6 +1055,138 @@ failure:
 }
 
 /**
+ * fwu_one_image_accepted() - Accept one image in trial state
+ *
+ * @img_entry: Pointer to the image entry.
+ * @active_idx: Active bank index.
+ * @image_number: Image number for logging purposes.
+ *
+ * Description: Invoke FWU accept image ABI to accept the image.
+ *
+ * Return: true on success, false on failure.
+ */
+static bool fwu_one_image_accepted(const struct fwu_image_entry *img_entry,
+				   u32 active_idx,
+				   u32 image_number)
+{
+	const struct fwu_image_bank_info *bank_info =
+		&img_entry->img_bank_info[active_idx];
+	int fwu_ret;
+
+	if (!bank_info->accepted) {
+		fwu_ret = fwu_accept(&bank_info->image_guid);
+		if (fwu_ret) {
+			log_err("FWU: Failed to accept image #%d\n",
+				image_number + 1);
+			return false;
+		}
+		log_debug("FWU: Image #%d accepted\n", image_number + 1);
+	}
+
+	return true;
+}
+
+/**
+ * fwu_all_images_accepted() - Accept any pending firmware update images
+ *
+ * @fwu_data: Pointer to FWU data structure
+ *
+ * Description: Read from the metadata the acceptance state of each image.
+ * Then, accept the images which are not accepted yet.
+ *
+ * Return: true on success, false on failure.
+ */
+static bool fwu_all_images_accepted(const struct fwu_data *fwu_data)
+{
+	int fwu_ret;
+	u32 active_idx;
+	u32 i;
+	bool accepted;
+
+	fwu_ret = fwu_get_active_index(&active_idx);
+	if (fwu_ret) {
+		log_err("FWU: Failed to read boot index, err (%d)\n",
+			fwu_ret);
+		return false;
+	}
+
+	for (i = 0 ; i < CONFIG_FWU_NUM_IMAGES_PER_BANK ; i++) {
+		accepted = fwu_one_image_accepted(&fwu_data->fwu_images[i], active_idx, i);
+		if (!accepted)
+			return false;
+	}
+
+	return true;
+}
+
+/**
+ * fwu_accept_notify_exit_boot_services() - ExitBootServices callback
+ *
+ * @event:	callback event
+ * @context:	callback context
+ *
+ * Description: Reaching ExitBootServices() level means the boot succeeded.
+ * So, accept all the images.
+ *
+ * Return: EFI_SUCCESS on success. Otherwise, failure.
+ */
+static void EFIAPI fwu_accept_notify_exit_boot_services(struct efi_event *event,
+							void *context)
+{
+	efi_status_t efi_ret = EFI_SUCCESS;
+	bool all_accepted;
+	struct fwu_data *fwu_data;
+
+	EFI_ENTRY("%p, %p", event, context);
+
+	fwu_data = fwu_get_data();
+	if (!fwu_data) {
+		log_err("FWU: Cannot get FWU data\n");
+		efi_ret = EFI_INVALID_PARAMETER;
+		goto out;
+	}
+
+	if (fwu_data->trial_state) {
+		all_accepted = fwu_all_images_accepted(fwu_data);
+		if (!all_accepted) {
+			efi_ret = EFI_ACCESS_DENIED;
+			goto out;
+		}
+
+	} else {
+		log_info("FWU: ExitBootServices: Booting in regular state\n");
+	}
+
+out:
+	EFI_EXIT(efi_ret);
+}
+
+/**
+ * fwu_setup_accept_event() - Setup the FWU accept event
+ *
+ * Description: Create a FWU accept event triggered on ExitBootServices().
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+static int fwu_setup_accept_event(void)
+{
+	efi_status_t efi_ret;
+	struct efi_event *evt = NULL;
+
+	efi_ret = efi_create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK,
+				   fwu_accept_notify_exit_boot_services, NULL,
+				   &efi_guid_event_group_exit_boot_services,
+				   &evt);
+	if (efi_ret != EFI_SUCCESS) {
+		log_err("FWU: Cannot install accept event %p, err (%lu)\n", evt,
+			efi_ret);
+		return -EPERM;
+	}
+
+	return 0;
+}
+
+/**
  * fwu_agent_init() - Setup the FWU agent
  *
  * Description: Perform the initializations required to communicate
@@ -1067,6 +1237,12 @@ int fwu_agent_init(void)
 	ret = fwu_discover();
 	if (ret)
 		goto failure;
+
+	if (IS_ENABLED(CONFIG_FWU_ARM_PSA_ACCEPT_IMAGES)) {
+		ret = fwu_setup_accept_event();
+		if (ret)
+			goto failure;
+	}
 
 	g_fwu_initialized = true;
 

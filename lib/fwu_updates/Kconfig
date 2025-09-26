@@ -65,6 +65,14 @@ config FWU_KEEP_FMP_HEADER
 	  Select this option if you do not want to strip the FMP header
 	  of the payload
 
+config FWU_ARM_PSA_ACCEPT_IMAGES
+	bool "Accept images at EFI ExitBootServices() level"
+	depends on FWU_ARM_PSA
+	default y
+	help
+	  Select this option if reaching ExitBootServices() level means the boot succeeded
+	  This option will add a callback at ExitBootServices() that accepts all the images.
+
 config FWU_BUFFER_PAGES
 	int "Number of 4KB pages in the FWU shared buffer"
 	depends on FWU_ARM_PSA

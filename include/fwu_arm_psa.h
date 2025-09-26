@@ -84,9 +84,10 @@ enum fwu_abis {
 	FWU_WRITE_STREAM = 20,
 	FWU_READ_STREAM = 21,
 	FWU_COMMIT = 22,
+	FWU_ACCEPT_IMAGE = 23,
 	/* To be updated when adding new FWU IDs */
 	FWU_FIRST_ID = FWU_DISCOVER, /* Lowest number ID */
-	FWU_LAST_ID = FWU_COMMIT, /* Highest number ID */
+	FWU_LAST_ID = FWU_ACCEPT_IMAGE, /* Highest number ID */
 };
 
 enum fwu_abi_errcode {
@@ -307,6 +308,25 @@ struct __packed fwu_write_stream_args {
  * @status: The ABI return status
  */
 struct __packed fwu_write_stream_resp {
+	int status;
+};
+
+/**
+ * struct fwu_accept_image_args - fwu_accept_image ABI arguments
+ * @function_id: fwu_accept_image service ID
+ * @image_type_guid: GUID of the image to be accepted
+ */
+struct __packed fwu_accept_image_args {
+	u32 function_id;
+	u32 reserved;
+	efi_guid_t image_type_guid;
+};
+
+/**
+ * struct fwu_accept_image_resp - fwu_accept_image ABI returns
+ * @status: The ABI return status
+ */
+struct __packed fwu_accept_image_resp {
 	int status;
 };
 
