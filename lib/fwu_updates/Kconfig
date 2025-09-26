@@ -57,6 +57,14 @@ config FWU_ARM_PSA
 	  driver that supports the Arm PSA firmware update specification as
 	  mentioned in https://developer.arm.com/documentation/den0118/a/
 
+config FWU_KEEP_FMP_HEADER
+	bool "Allow sending the FMP header with the payload"
+	depends on FWU_ARM_PSA
+	default y
+	help
+	  Select this option if you do not want to strip the FMP header
+	  of the payload
+
 config FWU_BUFFER_PAGES
 	int "Number of 4KB pages in the FWU shared buffer"
 	depends on FWU_ARM_PSA

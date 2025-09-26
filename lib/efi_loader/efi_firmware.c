@@ -512,8 +512,11 @@ static void efi_firmware_get_fw_version(const void **p_image,
 		/* FMP header is inserted above the capsule payload */
 		state->fw_version = header->fw_version;
 
-		*p_image += header->header_size;
-		*p_image_size -= header->header_size;
+		if (!IS_ENABLED(CONFIG_FWU_KEEP_FMP_HEADER)) {
+			*p_image += header->header_size;
+			*p_image_size -= header->header_size;
+		}
+
 	}
 }
 
