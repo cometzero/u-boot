@@ -4,6 +4,11 @@
  *
  *  Copyright (c) 2018 Linaro Limited
  *			Author: AKASHI Takahiro
+ *
+ * Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ *
+ * Author:
+ *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
  */
 
 #define LOG_CATEGORY LOGC_EFI
@@ -15,6 +20,7 @@
 #include <fdtdec.h>
 #include <fs.h>
 #include <fwu.h>
+#include <fwu_arm_psa.h>
 #include <hang.h>
 #include <malloc.h>
 #include <mapmem.h>
@@ -39,6 +45,8 @@ const efi_guid_t fwu_guid_os_request_fw_revert =
 		FWU_OS_REQUEST_FW_REVERT_GUID;
 const efi_guid_t fwu_guid_os_request_fw_accept =
 		FWU_OS_REQUEST_FW_ACCEPT_GUID;
+
+struct efi_capsule_header *g_capsule_data;
 
 #define FW_ACCEPT_OS	(u32)0x8000
 
@@ -195,6 +203,12 @@ efi_fmp_find(efi_guid_t *image_type, u8 image_index, u64 instance,
 		if (ret != EFI_SUCCESS)
 			continue;
 		fmp = fmp_handler->protocol_interface;
+
+		if (IS_ENABLED(CONFIG_FWU_ARM_PSA)) {
+			if (fwu_get_payload_type(image_index) !=
+				FWU_PAYLOAD_TYPE_REAL)
+				return fmp;
+		}
 
 		/* get device's image info */
 		info_size = 0;
@@ -586,7 +600,7 @@ static efi_status_t efi_capsule_update_firmware(
 	capsule_size = capsule_data->capsule_image_size
 			- capsule_data->header_size;
 
-	if (capsule->version != 0x00000001)
+	if (capsule->version != EFI_FIRMWARE_MANAGEMENT_CAPSULE_HEADER_VERSION)
 		return EFI_UNSUPPORTED;
 
 	handles = NULL;
@@ -596,6 +610,10 @@ static efi_status_t efi_capsule_update_firmware(
 			NULL, &no_handles, (efi_handle_t **)&handles));
 	if (ret != EFI_SUCCESS)
 		return EFI_UNSUPPORTED;
+
+	if (IS_ENABLED(CONFIG_FWU_ARM_PSA)) {
+		g_capsule_data = capsule_data;
+	}
 
 	/* Payload */
 	for (item = capsule->embedded_driver_count;
@@ -611,7 +629,8 @@ static efi_status_t efi_capsule_update_firmware(
 
 		image = (void *)capsule + capsule->item_offset_list[item];
 
-		if (image->version != 0x00000003) {
+		if (image->version !=
+			EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER_VERSION) {
 			ret = EFI_UNSUPPORTED;
 			goto out;
 		}

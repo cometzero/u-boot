@@ -25,6 +25,7 @@ static u8 g_fwu_version_major;
 static u8 g_fwu_version_minor;
 static bool g_fwu_initialized;
 struct fwu_image_directory g_fwu_cached_directory;
+efi_guid_t g_update_guid[CONFIG_FWU_NUM_IMAGES_PER_BANK];
 
 /* Error mapping declarations */
 
@@ -60,6 +61,18 @@ static struct fwu_abi_errmap err_msg_map[FWU_ERRMAP_COUNT] = {
 			"FWU_NO_PERMISSION: The image cannot be read from",
 		},
 	},
+	[FWU_ID_TO_ERRMAP_ID(FWU_WRITE_STREAM)] = {
+		{
+			[FWU_UNKNOWN] =
+			"FWU_UNKNOWN: Unrecognized handle",
+			[FWU_DENIED] =
+			"FWU_DENIED: The system is not in a Staging state",
+			[FWU_NO_PERMISSION] =
+			"FWU_NO_PERMISSION: The image cannot be written to",
+			[FWU_OUT_OF_BOUNDS] =
+			"FWU_OUT_OF_BOUNDS: less than data_len bytes available in the image",
+		},
+	},
 	[FWU_ID_TO_ERRMAP_ID(FWU_COMMIT)] = {
 		{
 			[FWU_UNKNOWN] =
@@ -70,6 +83,34 @@ static struct fwu_abi_errmap err_msg_map[FWU_ERRMAP_COUNT] = {
 			"FWU_AUTH_FAIL: Image closed, authentication failed",
 			[FWU_RESUME] =
 			"FWU_RESUME: The Update Agent yielded",
+		},
+	},
+	[FWU_ID_TO_ERRMAP_ID(FWU_BEGIN_STAGING)] = {
+		{
+			[FWU_UNKNOWN] =
+			"FWU_UNKNOWN: One of more GUIDs in the update_guid field are unknown to the Update Agent",
+			[FWU_DENIED] =
+			"FWU_DENIED: The Firmware Store is in the Trial state or the platform did not boot correctly",
+			[FWU_BUSY] =
+			"FWU_BUSY: The Client is temporarily prevented from entering the Staging state",
+		},
+	},
+	[FWU_ID_TO_ERRMAP_ID(FWU_END_STAGING)] = {
+		{
+			[FWU_BUSY] =
+			"FWU_BUSY: There are open image handles",
+			[FWU_DENIED] =
+			"FWU_DENIED: The system is not in a Staging state",
+			[FWU_AUTH_FAIL] =
+			"FWU_AUTH_FAIL: At least one of the updated images fails to authenticate",
+			[FWU_NOT_AVAILABLE] =
+			"FWU_NOT_AVAILABLE: The Update Agent does not support partial updates",
+		},
+	},
+	[FWU_ID_TO_ERRMAP_ID(FWU_CANCEL_STAGING)] = {
+		{
+			[FWU_DENIED] =
+			"FWU_DENIED: The system is not in a Staging state",
 		},
 	},
 };
@@ -123,6 +164,104 @@ static int fwu_print_error_log(u32 fwu_id, int fwu_errno)
 	log_err("%s\n", err_msg_map[abi_idx].err_str[err_idx]);
 
 	return 0;
+}
+
+/**
+ * fwu_get_payload_type() - Identifies the payload type
+ * @image_index:	The payload index
+ *
+ * Description: Identifies the FWU payload type based on the image index.
+ *
+ * Return: See @fwu_payload_type for details
+ */
+enum fwu_payload_type fwu_get_payload_type(u32 image_index)
+{
+	efi_guid_t *image_guid = NULL;
+	int i;
+	struct efi_fw_image *fw_array;
+
+	fw_array = update_info.images;
+	for (i = 0; i < update_info.num_images; i++) {
+		if (fw_array[i].image_index == image_index) {
+			image_guid = &fw_array[i].image_type_id;
+			break;
+		}
+	}
+
+	if (!image_guid)
+		return FWU_PAYLOAD_TYPE_INVALID;
+
+	if (!guidcmp(image_guid,
+		     &((efi_guid_t)FWU_DUMMY_START_IMAGE_GUID)))
+		return FWU_PAYLOAD_TYPE_DUMMY_START;
+
+	if (!guidcmp(image_guid,
+		     &((efi_guid_t)FWU_DUMMY_END_IMAGE_GUID)))
+		return FWU_PAYLOAD_TYPE_DUMMY_END;
+
+	return FWU_PAYLOAD_TYPE_REAL;
+}
+
+/**
+ * fwu_get_capsule_guids() - Detect the payloads GUIDs in the caspsule
+ *
+ * @partial_update_count:	A pointer to the number of payloads to update
+ * @saved_guids:	A pointer to a GUIDs array for the payloads GUIDs
+ *
+ * Description: Parse the current capsule and detect the payloads GUIDs.
+ *
+ * Return: EFI_SUCCESS on success. Otherwise, failure.
+ */
+static efi_status_t fwu_get_capsule_guids(u32 *partial_update_count,
+					  efi_guid_t saved_guids[])
+{
+	struct efi_firmware_management_capsule_header *capsule;
+	struct efi_firmware_management_capsule_image_header *image;
+	int item;
+	size_t capsule_size;
+	efi_status_t ret = EFI_SUCCESS;
+
+	if (!saved_guids || !partial_update_count)
+		return EFI_INVALID_PARAMETER;
+
+	*partial_update_count = 0;
+	capsule = (void *)g_capsule_data + g_capsule_data->header_size;
+	capsule_size = g_capsule_data->capsule_image_size
+		- g_capsule_data->header_size;
+
+	/* Payload */
+	for (item = capsule->embedded_driver_count;
+	     item < capsule->embedded_driver_count
+		     + capsule->payload_item_count; item++) {
+		/* sanity check */
+		if ((capsule->item_offset_list[item] + sizeof(*image)
+				>= capsule_size)) {
+			ret = EFI_INVALID_PARAMETER;
+			log_err("FWU: Insufficient data, err (0x%lx)\n", ret);
+			break;
+		}
+
+		image = (void *)capsule + capsule->item_offset_list[item];
+
+		if (image->version !=
+			EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER_VERSION) {
+			ret = EFI_UNSUPPORTED;
+			log_err("FWU: Version check failed, err (0x%lx)\n",
+				ret);
+			break;
+		}
+
+		if (fwu_get_payload_type(image->update_image_index) !=
+					 FWU_PAYLOAD_TYPE_REAL)
+			continue;
+
+		guidcpy(&saved_guids[*partial_update_count],
+			&image->update_image_type_id);
+
+		(*partial_update_count)++;
+	}
+
+	return ret;
 }
 
 /**
@@ -361,6 +500,86 @@ static int fwu_read_stream(u32 handle, u8 *buffer, u32 buffer_size)
 }
 
 /**
+ * fwu_begin_staging() -  fwu_begin_staging ABI
+ *
+ * Description: This call indicates to the Update Agent that a new staging
+ *  process will commence.
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+static int fwu_begin_staging(void)
+{
+	struct fwu_begin_staging_args *args = g_fwu_buf;
+	struct fwu_begin_staging_resp *resp = g_fwu_buf;
+	char *svc_name = "FWU_BEGIN_STAGING";
+	efi_status_t ret;
+
+	/* Filling the arguments in the shared buffer */
+	args->function_id = FWU_BEGIN_STAGING;
+
+	args->reserved = 0;
+	args->vendor_flags = 0;
+
+	ret = fwu_get_capsule_guids(&args->partial_update_count,
+				    args->update_guid);
+	if (ret) {
+		log_err("FWU: Failure to get the payloads GUIDs\n");
+		return -ENODATA;
+	}
+
+	log_info("FWU: Updating %d payload(s)\n", args->partial_update_count);
+
+	/* Executing the FWU ABI through the FF-A bus */
+	return fwu_invoke_svc(args->function_id, svc_name,
+			      sizeof(*args), sizeof(*resp), NULL);
+}
+
+/**
+ * fwu_end_staging() -  fwu_end_staging ABI
+ *
+ * Description: The Client informs the Update Agent that all the images, meant
+ * to be updated, have been transferred to the Update Agent and that the staging
+ * has terminated.
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+static int fwu_end_staging(void)
+{
+	struct fwu_end_staging_args *args = g_fwu_buf;
+	struct fwu_end_staging_resp *resp = g_fwu_buf;
+	char *svc_name = "FWU_END_STAGING";
+
+	/* Filling the arguments in the shared buffer */
+	args->function_id = FWU_END_STAGING;
+
+	/* Executing the FWU ABI through the FF-A bus */
+	return fwu_invoke_svc(args->function_id, svc_name,
+			      sizeof(*args), sizeof(*resp), NULL);
+}
+
+/**
+ * fwu_cancel_staging() -  fwu_cancel_staging ABI
+ *
+ * Description: The Client cancels the staging procedure and the system
+ * transitions back to the Regular state.
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+static int fwu_cancel_staging(void)
+{
+	struct fwu_cancel_staging_args *args = g_fwu_buf;
+	struct fwu_cancel_staging_resp *resp = g_fwu_buf;
+	char *svc_name = "FWU_CANCEL_STAGING";
+
+	/* Filling the arguments in the shared buffer */
+	args->function_id = FWU_CANCEL_STAGING;
+
+	/* Executing the FWU ABI through the FF-A bus */
+	return fwu_invoke_svc(args->function_id, svc_name,
+			      sizeof(*args), sizeof(*resp), NULL);
+}
+
+/**
  * fwu_commit() -  fwu_commit ABI
  * @handle: The handle of the context being closed
  * @acceptance_req: Acceptance status set by the Client
@@ -400,6 +619,137 @@ static int fwu_commit(u32 handle, u32 acceptance_req, u32 max_atomic_len)
 		  resp->total_work);
 
 	return 0;
+}
+
+/**
+ * fwu_write_stream() -  fwu_write_stream ABI
+ * @handle: The handle of the context being writen to
+ * @payload: The data to be transferred
+ * @payload_size: Size of the data present in the payload
+ *
+ *  Description: The call writes at most max_payload_size bytes to the Update
+ *  Agent context pointed to by handle.
+ *
+ * Return: 0 on success. Otherwise, failure
+ */
+static int fwu_write_stream(u32 handle, const u8 *payload, u32 payload_size)
+{
+	int ret;
+	u32 write_size, max_write_size, curr_write_offset = 0;
+	u32 payload_bytes_left = payload_size, fwu_buf_bytes_left;
+	struct fwu_write_stream_args *args = g_fwu_buf;
+	struct fwu_write_stream_resp *resp = g_fwu_buf;
+	char *svc_name = "FWU_WRITE_STREAM";
+
+	if (!payload || !payload_size)
+		return -EINVAL;
+
+	fwu_buf_bytes_left = FWU_BUFFER_SIZE - sizeof(*args);
+
+	if (g_max_payload_size <= fwu_buf_bytes_left)
+		max_write_size = g_max_payload_size;
+	else
+		max_write_size = fwu_buf_bytes_left;
+
+	while (curr_write_offset < payload_size) {
+		if (payload_bytes_left <= max_write_size)
+			write_size = payload_bytes_left;
+		else
+			write_size = max_write_size;
+
+		/* Filling the arguments in the shared buffer */
+		args->function_id = FWU_WRITE_STREAM;
+		args->handle = handle;
+		args->data_len = write_size;
+		memcpy(args->payload, payload + curr_write_offset, write_size);
+
+		/* Executing the FWU ABI through the FF-A bus */
+		ret = fwu_invoke_svc(args->function_id, svc_name, sizeof(*args),
+				     sizeof(*resp), NULL);
+		if (ret)
+			return ret;
+
+		curr_write_offset += write_size;
+		payload_bytes_left -= write_size;
+
+		log_debug("%s:  %d bytes written, remaining %d bytes\n",
+			  svc_name, write_size, payload_bytes_left);
+	}
+
+	return ret;
+}
+
+/**
+ * fwu_update_image() - Update an image
+ *
+ * @image: Pointer to the payload to write
+ * @image_index: The payload index
+ * @image_size: The payload size
+ *
+ * Description: Perform staging with multiple payloads support.
+ * The capsule is expected to:
+ *     - Start with a dummy payload to mark the start of the payloads sequence
+ *     - One or more payloads to be written to the storage device
+ *     - End with a dummy payload to mark the end of the payloads sequence
+ *
+ * The possible payloads in the capsule are described in the board file
+ * through struct efi_fw_image. This includes the dummy payloads.
+ * The dummy payloads image indexes must be >= CONFIG_FWU_NUM_IMAGES_PER_BANK
+ * The dummy payloads are not sent to the Secure world and are not written to
+ * the storage device.
+ *
+ * Return: 0 on success. Otherwise, failure.
+ */
+int fwu_update_image(const void *image, u8 image_index, u32 image_size)
+{
+	int ret;
+	u32 handle;
+
+	if (!image)
+		return -EINVAL;
+
+	/* Only image indexes starting from 1 are supported */
+	if (!image_index || image_index > update_info.num_images)
+		return -EINVAL;
+
+	if (fwu_get_payload_type(image_index) ==
+		FWU_PAYLOAD_TYPE_DUMMY_START) {
+		return fwu_begin_staging();
+	}
+
+	if (fwu_get_payload_type(image_index) ==
+		FWU_PAYLOAD_TYPE_DUMMY_END) {
+		ret = fwu_end_staging();
+		if (ret)
+			goto cancel_staging;
+		return 0;
+	}
+
+	ret = fwu_open(&g_fwu_cached_directory.entries[image_index - 1].image_guid,
+		       FWU_OP_TYPE_WRITE, &handle);
+	if (ret)
+		goto cancel_staging;
+
+	ret = fwu_write_stream(handle, image, image_size);
+	if (ret)
+		goto cancel_staging;
+
+	/*
+	 * The Update Agent can execute for an unbounded time.
+	 * The image should be tried before being accepted.
+	 * So, we put the acceptance request as 'not accepted'.
+	 */
+	ret = fwu_commit(handle, FWU_IMG_NOT_ACCEPTED, 0);
+	if (ret)
+		goto cancel_staging;
+
+	log_debug("FWU: Image at index %d updated\n", image_index);
+
+	return 0;
+
+cancel_staging:
+
+	return fwu_cancel_staging();
 }
 
 /**

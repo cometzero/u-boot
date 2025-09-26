@@ -40,6 +40,21 @@
 /* The entries correspond to the payloads in the storage device and the fake ESRT image */
 #define FWU_DIRECTORY_IMAGE_ENTRIES_COUNT (CONFIG_FWU_NUM_IMAGES_PER_BANK + 1)
 
+/*
+ * GUIDs for dummy payloads
+ *
+ * The GUIDs are generated with the UUIDv5 format.
+ * Namespace: 7b5c472e-5671-4fb7-a824-36a8e86f05c1
+ * Names: DUMMY_START, DUMMY_END
+ */
+#define FWU_DUMMY_START_IMAGE_GUID \
+	EFI_GUID(0x6f784cbf, 0x7938, 0x5c23, 0x8d, 0x6e, \
+		0x24, 0xd2, 0xf1, 0x41, 0x0f, 0xa9)
+
+#define FWU_DUMMY_END_IMAGE_GUID \
+	EFI_GUID(0xb57e432b, 0xa250, 0x5c73, 0x93, 0xe3, \
+		0x90, 0x20, 0x5e, 0x64, 0xba, 0xba)
+
 #define TS_RPC_MEM_RETRIEVE		(0xff0001)
 #define TS_RPC_SERVICE_INFO_GET		(0xff0003)
 #define RPC_SUCCESS			(0)
@@ -62,7 +77,11 @@
 
 enum fwu_abis {
 	FWU_DISCOVER = 0,
+	FWU_BEGIN_STAGING = 16,
+	FWU_END_STAGING = 17,
+	FWU_CANCEL_STAGING = 18,
 	FWU_OPEN = 19,
+	FWU_WRITE_STREAM = 20,
 	FWU_READ_STREAM = 21,
 	FWU_COMMIT = 22,
 	/* To be updated when adding new FWU IDs */
@@ -80,6 +99,14 @@ enum fwu_abi_errcode {
 	FWU_RESUME,
 	FWU_NOT_AVAILABLE,
 	MAX_NUMBER_FWU_ERR
+};
+
+/* Enum to classify the possible type of payloads */
+enum fwu_payload_type {
+	FWU_PAYLOAD_TYPE_REAL = 1, /* Real payload */
+	FWU_PAYLOAD_TYPE_DUMMY_START, /* The start dummy payload */
+	FWU_PAYLOAD_TYPE_DUMMY_END, /* The end dummy payload */
+	FWU_PAYLOAD_TYPE_INVALID, /* Invalid image_index */
 };
 
 /* Container structure and helper macros to map between an FF-A error and relevant error log */
@@ -174,6 +201,63 @@ struct __packed fwu_read_stream_resp {
 };
 
 /**
+ * struct fwu_begin_staging_args - fwu_begin_staging ABI arguments
+ * @function_id: fwu_begin_staging service ID
+ * @reserved: Reserved, must be zero
+ * @vendor_flags: Vendor specific staging flags
+ * @partial_update_count: The number of elements in the update_guid
+ * @update_guid: An array of image type GUIDs that the update Client will update
+ *               during the Staging state
+ */
+struct __packed fwu_begin_staging_args {
+	u32 function_id;
+	u32 reserved;
+	u32 vendor_flags;
+	u32 partial_update_count;
+	efi_guid_t update_guid[];
+};
+
+/**
+ * struct fwu_begin_staging_resp - fwu_begin_staging ABI returns
+ * @status: The ABI return status
+ */
+struct __packed fwu_begin_staging_resp {
+	int status;
+};
+
+/**
+ * struct fwu_end_staging_args - fwu_end_staging ABI arguments
+ * @function_id: fwu_end_staging service ID state
+ */
+struct __packed fwu_end_staging_args {
+	u32 function_id;
+};
+
+/**
+ * struct fwu_end_staging_resp - fwu_end_staging ABI returns
+ * @status: The ABI return status
+ */
+struct __packed fwu_end_staging_resp {
+	int status;
+};
+
+/**
+ * struct fwu_cancel_staging_args - fwu_cancel_staging ABI arguments
+ * @function_id: fwu_cancel_staging service ID state
+ */
+struct __packed fwu_cancel_staging_args {
+	u32 function_id;
+};
+
+/**
+ * struct fwu_cancel_staging_resp - fwu_cancel_staging ABI returns
+ * @status: The ABI return status
+ */
+struct __packed fwu_cancel_staging_resp {
+	int status;
+};
+
+/**
  * struct fwu_commit_args - fwu_commit ABI arguments
  * @function_id: fwu_commit service ID
  * @handle: The handle of the context being closed
@@ -202,6 +286,28 @@ struct __packed fwu_commit_resp {
 	int status;
 	u32 progress;
 	u32 total_work;
+};
+
+/**
+ * struct fwu_write_stream_args - fwu_write_stream ABI arguments
+ * @function_id: fwu_write_stream service ID
+ * @handle: The handle of the context being written to
+ * @data_len: Size of the data present in the payload
+ * @payload: The data to be transferred
+ */
+struct __packed fwu_write_stream_args {
+	u32 function_id;
+	u32  handle;
+	u32 data_len;
+	u8 payload[];
+};
+
+/**
+ * struct fwu_write_stream_resp - fwu_write_stream ABI returns
+ * @status: The ABI return status
+ */
+struct __packed fwu_write_stream_resp {
+	int status;
 };
 
 /*
@@ -238,5 +344,27 @@ struct __packed fwu_image_directory {
  * Return: 0 on success. Otherwise, failure
  */
 int fwu_agent_init(void);
+
+/**
+ * fwu_update_image() - Update an image
+ * @image: Pointer to the payload
+ * @image_index: Payload index
+ * @image_size: Payload size in bytes
+ *
+ * Perform staging with multiple payloads support.
+ *
+ * Return: 0 on success
+ */
+int fwu_update_image(const void *image, u8 image_index, u32 image_size);
+
+/**
+ * fwu_get_payload_type() - Identifies the payload type
+ * @image_index:	The payload index
+ *
+ * Identifies the FWU payload type based on the image index.
+ *
+ * Return: See @fwu_payload_type for details
+ */
+enum fwu_payload_type fwu_get_payload_type(u32 image_index);
 
 #endif

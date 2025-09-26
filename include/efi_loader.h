@@ -3,6 +3,11 @@
  *  EFI application loader
  *
  *  Copyright (c) 2016 Alexander Graf
+ *
+ * Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ *
+ * Author:
+ *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
  */
 
 #ifndef _EFI_LOADER_H
@@ -393,6 +398,9 @@ extern const efi_guid_t smbios3_guid;
 /*GUID of console */
 extern const efi_guid_t efi_guid_text_input_protocol;
 extern const efi_guid_t efi_guid_text_output_protocol;
+
+/*The current processed capsule */
+extern struct efi_capsule_header *g_capsule_data;
 
 /**
  * struct efi_open_protocol_info_item - open protocol info item

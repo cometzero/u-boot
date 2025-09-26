@@ -10,6 +10,11 @@
  *	David Mosberger-Tang <davidm@hpl.hp.com>
  *	Stephane Eranian <eranian@hpl.hp.com>
  *
+ * Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ *
+ * Author:
+ *   Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
+ *
  * From include/linux/efi.h in kernel 4.1 with some additions/subtractions
  */
 
@@ -24,6 +29,9 @@
  * define EFI_SPECIFICATION_VERSION - UEFI specification version
  */
 #define EFI_SPECIFICATION_VERSION (2 << 16 | 110)
+
+#define EFI_FIRMWARE_MANAGEMENT_CAPSULE_HEADER_VERSION 0x00000001
+#define EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER_VERSION 0x00000003
 
 /* Types and defines for EFI CreateEvent */
 enum efi_timer_delay {
