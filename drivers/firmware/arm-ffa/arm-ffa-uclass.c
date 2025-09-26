@@ -109,6 +109,18 @@ static struct ffa_abi_errmap err_msg_map[FFA_ERRMAP_COUNT] = {
 			"DENIED: Memory region ownership, permission, access or attributes error",
 		},
 	},
+	[FFA_ID_TO_ERRMAP_ID(FFA_MEM_RECLAIM)] = {
+		{
+			[ABORTED] =
+			"ABORTED: ABI invocation failure",
+			[INVALID_PARAMETERS] =
+			"INVALID_PARAMETERS: Invalid handle or flags",
+			[NO_MEMORY] =
+			"NO_MEMORY: Failure to create the Owner's mapping",
+			[DENIED] =
+			"DENIED: Memory region state issue",
+		},
+	},
 };
 
 /**
@@ -1114,6 +1126,44 @@ int ffa_memory_share_hdlr(struct udevice *dev, struct ffa_mem_ops_args *args)
 	return ffa_memory_ops(dev, FFA_MEM_SHARE, args);
 }
 
+/**
+ * ffa_memory_reclaim_hdlr() - FFA_MEM_RECLAIM handler function
+ * @dev: The FF-A bus device
+ * @g_handle: The memory region globally unique Handle
+ * @flags: Zero memory and time slicing flags
+ *
+ * Implement FFA_MEM_RECLAIM FF-A function
+ * to restore exclusive access to a memory region back to its Owner.
+ * Note: FFA_MEM_RECLAIM can not be used at EFI runtime because memory that was
+ * lent as per the memory map during boot time can not be reclaimed into the
+ * memory map during runtime.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_reclaim_hdlr(struct udevice *dev, u64 g_handle, u32 flags)
+{
+	ffa_value_t res;
+	int ffa_errno;
+
+	invoke_ffa_fn((ffa_value_t){
+			.a0 = FFA_SMC_32(FFA_MEM_RECLAIM),
+			.a1 = HANDLE_LOW(g_handle), .a2 = HANDLE_HIGH(g_handle),
+			.a3 = flags,
+			},
+			&res
+	);
+
+	if (res.a0 != FFA_SMC_32(FFA_SUCCESS)) {
+		ffa_errno = res.a2;
+		ffa_print_error_log(FFA_MEM_RECLAIM, ffa_errno);
+		return ffa_to_std_errno(ffa_errno);
+	}
+
+	return 0;
+}
+
 /* FF-A driver operations (used by clients for communicating with FF-A)*/
 
 /**
@@ -1214,6 +1264,29 @@ int ffa_memory_share(struct udevice *dev, struct ffa_mem_ops_args *args)
 		return -ENOSYS;
 
 	return ops->memory_share(dev, args);
+}
+
+/**
+ * ffa_memory_reclaim() - FFA_MEM_RECLAIM driver operation
+ * @dev: The FF-A bus device
+ * @g_handle: The memory region globally unique Handle
+ * @flags: Zero memory and time slicing flags
+ *
+ * Driver operation for FFA_MEM_RECLAIM.
+ * Please see ffa_memory_reclaim_hdlr() description for more details.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_reclaim(struct udevice *dev, u64 g_handle, u32 flags)
+{
+	struct ffa_bus_ops *ops = ffa_get_ops(dev);
+
+	if (!ops->memory_reclaim)
+		return -ENOSYS;
+
+	return ops->memory_reclaim(dev, g_handle, flags);
 }
 
 /**

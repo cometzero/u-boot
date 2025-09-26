@@ -153,8 +153,9 @@ struct ffa_mem_ops_args {
  * struct ffa_bus_ops - Operations for FF-A
  * @partition_info_get:	callback for the FFA_PARTITION_INFO_GET
  * @sync_send_receive:	callback for the FFA_MSG_SEND_DIRECT_REQ
- * @rxtx_unmap:	callback for the FFA_RXTX_UNMAP
+ * @rxtx_unmap:		callback for the FFA_RXTX_UNMAP
  * @memory_share:	callback for the FFA_MEM_SHARE
+ * @memory_reclaim:	callback for the FFA_MEM_RECLAIM
  *
  * The data structure providing all the operations supported by the driver.
  * This structure is EFI runtime resident.
@@ -167,6 +168,7 @@ struct ffa_bus_ops {
 				 bool is_smc64);
 	int (*rxtx_unmap)(struct udevice *dev);
 	int (*memory_share)(struct udevice *dev, struct ffa_mem_ops_args *args);
+	int (*memory_reclaim)(struct udevice *dev, u64 g_handle, u32 flags);
 };
 
 #define ffa_get_ops(dev)        ((struct ffa_bus_ops *)(dev)->driver->ops)
@@ -289,6 +291,34 @@ int ffa_memory_share(struct udevice *dev, struct ffa_mem_ops_args *args);
  * 0 on success. Otherwise, failure
  */
 int ffa_memory_share_hdlr(struct udevice *dev, struct ffa_mem_ops_args *args);
+
+/**
+ * ffa_memory_reclaim() - FFA_MEM_RECLAIM driver operation
+ * @dev: The FF-A bus device
+ * @g_handle: The memory region globally unique Handle
+ * @flags: Zero memory and time slicing flags
+ * Implement FFA_MEM_RECLAIM FF-A function
+ *
+ * Please see ffa_memory_reclaim_hdlr() description for more details.
+ *
+ * Return: 0 on success. Otherwise, failure
+ */
+int ffa_memory_reclaim(struct udevice *dev, u64 g_handle, u32 flags);
+
+/**
+ * ffa_memory_reclaim_hdlr() - FFA_MEM_RECLAIM handler function
+ * @dev: The FF-A bus device
+ * @g_handle: The memory region globally unique Handle
+ * @flags: Zero memory and time slicing flags
+ *
+ * Implement FFA_MEM_RECLAIM FF-A function
+ * to restore exclusive access to a memory region back to its Owner.
+ *
+ * Return:
+ *
+ * 0 on success. Otherwise, failure
+ */
+int ffa_memory_reclaim_hdlr(struct udevice *dev, u64 g_handle, u32 flags);
 
 struct ffa_priv;
 

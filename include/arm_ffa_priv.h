@@ -133,10 +133,11 @@ enum ffa_abis {
 	FFA_MSG_SEND_DIRECT_REQ   = 0x6f,
 	FFA_MSG_SEND_DIRECT_RESP  = 0x70,
 	FFA_MEM_SHARE             = 0x73,
+	FFA_MEM_RECLAIM           = 0x77,
 
 	/* To be updated when adding new FFA IDs */
 	FFA_FIRST_ID              = FFA_ERROR, /* Lowest number ID */
-	FFA_LAST_ID               = FFA_MEM_SHARE, /* Highest number ID */
+	FFA_LAST_ID               = FFA_MEM_RECLAIM, /* Highest number ID */
 };
 
 enum ffa_abi_errcode {
