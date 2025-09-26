@@ -562,7 +562,9 @@ static efi_status_t efi_capsule_update_firmware(
 	if (IS_ENABLED(CONFIG_FWU_MULTI_BANK_UPDATE)) {
 		if (fwu_empty_capsule(capsule_data)) {
 			if (fwu_empty_capsule_checks_pass()) {
-				return fwu_empty_capsule_process(capsule_data);
+				return !IS_ENABLED(CONFIG_FWU_ARM_PSA) ?
+					fwu_empty_capsule_process(capsule_data) :
+					0;
 			} else {
 				log_err("FWU empty capsule checks failed. Cannot start update\n");
 				return EFI_INVALID_PARAMETER;
@@ -1357,7 +1359,8 @@ efi_status_t efi_launch_capsules(void)
 
 	efi_capsule_scan_done();
 
-	if (IS_ENABLED(CONFIG_FWU_MULTI_BANK_UPDATE)) {
+	if (IS_ENABLED(CONFIG_FWU_MULTI_BANK_UPDATE) &&
+	    !IS_ENABLED(CONFIG_FWU_ARM_PSA)) {
 		if (capsule_update == true && update_status == true) {
 			ret = fwu_post_update_process(fw_accept_os);
 		} else if (capsule_update == true && update_status == false) {

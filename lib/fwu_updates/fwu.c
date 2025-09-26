@@ -340,6 +340,11 @@ int fwu_get_mdata(struct fwu_mdata *mdata)
 		if (parts_ok[i])
 			continue;
 
+		if (IS_ENABLED(CONFIG_FWU_ARM_PSA)) {
+			log_err("FWU metadata copy %d invalid\n", i);
+			return -ENOTSYNC;
+		}
+
 		memcpy(parts_mdata[i], parts_mdata[1 - i], mdata_size);
 		err = fwu_sync_mdata(parts_mdata[i], i ? SECONDARY_PART : PRIMARY_PART);
 		if (err) {
@@ -792,7 +797,8 @@ static int fwu_boottime_checks(void)
 
 	in_trial = in_trial_state();
 
-	ret = in_trial ? fwu_trial_count_update() : trial_counter_update(NULL);
+	ret = (in_trial && !IS_ENABLED(CONFIG_FWU_ARM_PSA)) ?
+	       fwu_trial_count_update() : trial_counter_update(NULL);
 
 	if (!ret)
 		boottime_check = 1;
