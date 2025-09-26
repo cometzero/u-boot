@@ -14,6 +14,7 @@
 #include <efi_variable.h>
 #include <env.h>
 #include <fwu.h>
+#include <fwu_arm_psa.h>
 #include <image.h>
 #include <signatures.h>
 
@@ -312,14 +313,13 @@ static efi_status_t efi_gen_capsule_guids(void)
  *
  * Return		status code
  */
-static efi_status_t efi_fill_image_desc_array(
-	efi_uintn_t *image_info_size,
-	struct efi_firmware_image_descriptor *image_info,
-	u32 *descriptor_version,
-	u8 *descriptor_count,
-	efi_uintn_t *descriptor_size,
-	u32 *package_version,
-	u16 **package_version_name)
+efi_status_t __weak efi_fill_image_desc_array(efi_uintn_t *image_info_size,
+					      struct efi_firmware_image_descriptor *image_info,
+					      u32 *descriptor_version,
+					      u8 *descriptor_count,
+					      efi_uintn_t *descriptor_size,
+					      u32 *package_version,
+					      u16 **package_version_name)
 {
 	size_t total_size;
 	struct efi_fw_image *fw_array;
@@ -764,6 +764,15 @@ efi_status_t EFIAPI efi_firmware_raw_set_image(
 					   &state);
 	if (status != EFI_SUCCESS)
 		return EFI_EXIT(status);
+
+	if (IS_ENABLED(CONFIG_FWU_ARM_PSA)) {
+		if (fwu_update_image(image, image_index, image_size))
+			return EFI_EXIT(EFI_DEVICE_ERROR);
+
+		efi_firmware_set_fmp_state_var(&state, image_index);
+
+		return EFI_EXIT(EFI_SUCCESS);
+	}
 
 	/*
 	 * dfu_alt_num is assigned from 0 while image_index starts from 1.
