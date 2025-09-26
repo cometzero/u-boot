@@ -46,4 +46,22 @@ config FWU_MDATA_V2
 	  metadata structure. This option enables support for FWU
 	  Metadata version 2 access.
 
+config FWU_ARM_PSA
+	bool "FMP driver for Arm PSA FWU specification"
+	depends on EFI_CAPSULE_FIRMWARE_MANAGEMENT && \
+		EFI_CAPSULE_FIRMWARE_RAW && \
+		ARM_FFA_TRANSPORT && (ARM64 || SANDBOX)
+	select EFI_CAPSULE_FIRMWARE
+	help
+	  Select this option if you want to enable firmware management protocol
+	  driver that supports the Arm PSA firmware update specification as
+	  mentioned in https://developer.arm.com/documentation/den0118/a/
+
+config FWU_BUFFER_PAGES
+	int "Number of 4KB pages in the FWU shared buffer"
+	depends on FWU_ARM_PSA
+	default 1024
+	help
+	  This defines the size of the FWU shared buffer used for communication.
+
 endif
