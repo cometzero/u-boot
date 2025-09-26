@@ -1120,6 +1120,19 @@ static bool fwu_all_images_accepted(const struct fwu_data *fwu_data)
 }
 
 /**
+ * fwu_notify_exit_boot_services() - FWU notification handler
+ *
+ * Description: Some boards need to perform custom actions on ExitBootService()
+ * related to FWU. This function can be overridden by the board.
+ *
+ * Return: EFI_SUCCESS on success. Otherwise, failure.
+ */
+efi_status_t __weak fwu_notify_exit_boot_services(void)
+{
+	return EFI_SUCCESS;
+}
+
+/**
  * fwu_accept_notify_exit_boot_services() - ExitBootServices callback
  *
  * @event:	callback event
@@ -1158,6 +1171,8 @@ static void EFIAPI fwu_accept_notify_exit_boot_services(struct efi_event *event,
 	}
 
 out:
+	fwu_notify_exit_boot_services();
+
 	EFI_EXIT(efi_ret);
 }
 
