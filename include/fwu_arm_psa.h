@@ -16,6 +16,9 @@
 
 #define DEFAULT_HW_INSTANCE		(1)
 
+/* The minimum supported ESRT version */
+#define EFI_SYSTEM_RESOURCE_TABLE_FIRMWARE_RESOURCE_VERSION		(1)
+
 /* Default values of the ESRT fields which are not supported at this stage */
 #define PACKAGE_VERSION_NOT_SUP		(0xffffffff)
 #define LAST_ATTEMPT_NOT_SUP		(0)
@@ -352,6 +355,16 @@ struct __packed fwu_image_directory {
 	u32 img_info_size;
 	u32 reserved;
 	struct fwu_image_info_entry entries[FWU_DIRECTORY_IMAGE_ENTRIES_COUNT];
+};
+
+/**
+ * struct fwu_esrt_data_wrapper - Wrapper for the ESRT data
+ * @data: The ESRT data read from secure world
+ * @entries: The ESRT entries
+ */
+struct __packed fwu_esrt_data_wrapper {
+	struct efi_system_resource_table data;
+	struct efi_system_resource_entry entries[CONFIG_FWU_NUM_IMAGES_PER_BANK];
 };
 
 /**
