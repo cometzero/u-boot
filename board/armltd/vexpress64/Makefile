@@ -9,4 +9,8 @@ obj-$(CONFIG_OF_HAS_PRIOR_STAGE)	+= lowlevel_init.o
 
 obj-$(CONFIG_TARGET_VEXPRESS64_JUNO)	+= pcie.o
 
+ifeq ($(RD_ASPEN_VARIANT),cfg2)
+ccflags-y += -DRD_ASPEN_VARIANT_CFG2
+endif
+
 obj-$(CONFIG_EFI_HAVE_CAPSULE_SUPPORT)	+= rdaspen_fw_images.o
