@@ -16,6 +16,7 @@
 #include <asm/system.h>
 #include <dm/uclass-internal.h>
 #include <linux/bitops.h>
+#include <asm/csr.h>
 
 /*
  * The variables here must be stored in the data section since they are used
@@ -177,6 +178,16 @@ int arch_early_init_r(void)
 	if (IS_ENABLED(CONFIG_SYSRESET_SBI))
 		device_bind_driver(gd->dm_root, "sbi-sysreset",
 				   "sbi-sysreset", NULL);
+
+#ifdef CONFIG_RISCV_WORLDGUARD
+	/*
+	 * Initialize WorldGuard S-mode WID (slwid)
+	 * OpenSBI sets mlwid=3 (M-mode) and delegates WID 1,2 via mwiddeleg.
+	 * U-Boot runs in S-mode and sets slwid=2 for S-mode WID.
+	 */
+	csr_write(CSR_SLWID, 2);
+	printf("WorldGuard: slwid set to 2\n");
+#endif
 
 	return 0;
 }

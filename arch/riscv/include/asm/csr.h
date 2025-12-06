@@ -115,6 +115,12 @@
 #else
 #define CSR_SATP		0x180
 #endif
+
+/* WorldGuard CSRs */
+#define CSR_SLWID		0x190	/* Supervisor Local World ID */
+#define CSR_MLWID		0x390	/* Machine Local World ID */
+#define CSR_MWIDDELEG		0x748	/* Machine WID Delegation */
+
 #define CSR_MSTATUS		0x300
 #define CSR_MISA		0x301
 #define CSR_MIE			0x304
