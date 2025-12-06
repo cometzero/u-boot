@@ -49,4 +49,24 @@
  */
 int spl_worldguard_init(void *fdt);
 
+/**
+ * spl_worldguard_add_dt_props() - Add WorldGuard properties to DTB
+ * @fdt: Pointer to device tree blob to modify
+ * @mlwid: Machine Local World ID value
+ * @mwiddeleg: Machine WID Delegation value
+ *
+ * Returns: 0 on success, negative on error
+ */
+int spl_worldguard_add_dt_props(void *fdt, u32 mlwid, u32 mwiddeleg);
+
+/**
+ * spl_create_merged_dtb() - Create new DTB with WorldGuard properties
+ * @orig_fdt: Original device tree
+ * @mlwid: Machine Local World ID value
+ * @mwiddeleg: Machine WID Delegation value
+ *
+ * Returns: Pointer to new DTB on success, NULL on error
+ */
+void *spl_create_merged_dtb(const void *orig_fdt, u32 mlwid, u32 mwiddeleg);
+
 #endif /* _WORLDGUARD_H_ */
