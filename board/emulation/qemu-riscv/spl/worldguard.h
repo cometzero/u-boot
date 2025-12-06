@@ -7,6 +7,8 @@
 #ifndef _WORLDGUARD_H_
 #define _WORLDGUARD_H_
 
+#include <asm/csr.h>
+
 /* WorldGuard CSR addresses (RISC-V WorldGuard spec v0.4) */
 #define CSR_MLWID       0x390   /* Machine Local World ID */
 #define CSR_MWIDDELEG   0x748   /* Machine WID Delegation */

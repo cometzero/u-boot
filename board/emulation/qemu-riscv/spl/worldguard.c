@@ -41,6 +41,69 @@ static int spl_worldguard_detect(void *fdt)
 }
 
 /**
+ * spl_worldguard_read_dt_config() - Read WorldGuard config from Device Tree
+ * @fdt: Pointer to device tree blob
+ * @node: WorldGuard DT node offset
+ * @nworlds: Output pointer for nworlds value
+ * @trustedwid: Output pointer for trustedwid value
+ * @mwiddeleg: Output pointer for mwiddeleg value
+ *
+ * Reads WorldGuard configuration from DT properties.
+ * Falls back to defaults if properties not found.
+ */
+static void spl_worldguard_read_dt_config(void *fdt, int node,
+					  u32 *nworlds, u32 *trustedwid,
+					  u32 *mwiddeleg)
+{
+	const fdt32_t *prop;
+	int len;
+
+	/* Read nworlds property (default: 4) */
+	prop = fdt_getprop(fdt, node, "nworlds", &len);
+	if (prop && len == sizeof(fdt32_t))
+		*nworlds = fdt32_to_cpu(*prop);
+	else
+		*nworlds = WG_DEFAULT_NWORLDS;
+
+	/* Read trustedwid property (default: 3) */
+	prop = fdt_getprop(fdt, node, "trustedwid", &len);
+	if (prop && len == sizeof(fdt32_t))
+		*trustedwid = fdt32_to_cpu(*prop);
+	else
+		*trustedwid = WG_DEFAULT_TRUSTEDWID;
+
+	/* Read mwiddeleg property (default: 0x6) */
+	prop = fdt_getprop(fdt, node, "mwiddeleg", &len);
+	if (prop && len == sizeof(fdt32_t))
+		*mwiddeleg = fdt32_to_cpu(*prop);
+	else
+		*mwiddeleg = WG_DEFAULT_MWIDDELEG;
+
+	debug("WorldGuard: DT config - nworlds=%u, trustedwid=%u, mwiddeleg=0x%x\n",
+	      *nworlds, *trustedwid, *mwiddeleg);
+}
+
+/**
+ * spl_worldguard_init_csrs() - Initialize WorldGuard CSRs
+ * @mlwid: Machine Local World ID value
+ * @mwiddeleg: Machine WID Delegation value
+ *
+ * Writes WorldGuard CSRs in M-mode.
+ * This must be called before transitioning to S-mode.
+ */
+static void spl_worldguard_init_csrs(u32 mlwid, u32 mwiddeleg)
+{
+	/* Set Machine Local World ID (mlwid) */
+	csr_write(CSR_MLWID, mlwid);
+
+	/* Set Machine WID Delegation (mwiddeleg) */
+	csr_write(CSR_MWIDDELEG, mwiddeleg);
+
+	debug("WorldGuard: CSRs initialized - mlwid=%u, mwiddeleg=0x%x\n",
+	      mlwid, mwiddeleg);
+}
+
+/**
  * spl_worldguard_init() - Initialize WorldGuard in SPL
  * @fdt: Pointer to device tree blob
  *
@@ -54,6 +117,7 @@ static int spl_worldguard_detect(void *fdt)
 int spl_worldguard_init(void *fdt)
 {
 	int node;
+	u32 nworlds, trustedwid, mwiddeleg;
 
 	/* DT-first detection: Only access CSRs if DT node present */
 	node = spl_worldguard_detect(fdt);
@@ -66,12 +130,14 @@ int spl_worldguard_init(void *fdt)
 		return 1;
 	}
 
-	/*
-	 * WorldGuard DT node found.
-	 * CSR initialization and wgChecker programming will be added
-	 * in Phase 4 (US2) and Phase 5 (US3).
-	 */
-	debug("WorldGuard: Detected (initialization pending)\n");
+	/* Read WorldGuard configuration from Device Tree */
+	spl_worldguard_read_dt_config(fdt, node, &nworlds, &trustedwid, &mwiddeleg);
+
+	/* Initialize WorldGuard CSRs */
+	spl_worldguard_init_csrs(trustedwid, mwiddeleg);
+
+	printf("WorldGuard: enabled, mlwid=%u, mwiddeleg=0x%x\n",
+	       trustedwid, mwiddeleg);
 
 	return 0;
 }
