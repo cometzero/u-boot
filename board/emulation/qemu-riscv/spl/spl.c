@@ -16,6 +16,10 @@
 #include <asm/arch/spl.h>
 #include <asm/io.h>
 
+#ifdef CONFIG_SPL_WORLDGUARD
+#include "worldguard.h"
+#endif
+
 DECLARE_GLOBAL_DATA_PTR;
 
 /*
@@ -67,12 +71,21 @@ void board_init_f(ulong dummy)
  */
 void spl_board_init(void)
 {
+	int ret;
+
 	debug("SPL: Board-specific init\n");
 
-	/*
-	 * WorldGuard initialization will be added here in Phase 4
-	 * For now, this is a placeholder for the boot chain test
-	 */
+#ifdef CONFIG_SPL_WORLDGUARD
+	/* Initialize WorldGuard if present in Device Tree */
+	ret = spl_worldguard_init((void *)gd->fdt_blob);
+	if (ret < 0) {
+		debug("SPL: WorldGuard init failed: %d\n", ret);
+		/* Non-fatal - continue boot */
+	} else if (ret == 0) {
+		debug("SPL: WorldGuard initialized\n");
+	}
+	/* ret == 1: WorldGuard not present, silent skip */
+#endif
 
 	debug("SPL: Ready to load next stage\n");
 }
