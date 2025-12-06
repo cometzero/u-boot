@@ -88,4 +88,12 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 	imply UFS
 	imply UFS_PCI
 
+config SPL_WORLDGUARD
+	bool "Enable WorldGuard initialization in SPL"
+	depends on SPL
+	help
+	  Initialize RISC-V WorldGuard CSRs and wgChecker slots
+	  in U-Boot SPL before loading OpenSBI. This enables
+	  WorldGuard memory protection from the earliest boot stage.
+
 endif
