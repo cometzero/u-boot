@@ -25,6 +25,7 @@ static u64 g_max_payload_size;
 static u8 g_fwu_version_major;
 static u8 g_fwu_version_minor;
 static bool g_fwu_initialized;
+static bool g_in_trial;
 struct fwu_image_directory g_fwu_cached_directory;
 efi_guid_t g_update_guid[CONFIG_FWU_NUM_IMAGES_PER_BANK];
 struct fwu_esrt_data_wrapper g_esrt_data;
@@ -764,7 +765,7 @@ int fwu_update_image(const void *image, u8 image_index, u32 image_size)
 		return 0;
 	}
 
-	ret = fwu_open(&g_fwu_cached_directory.entries[image_index - 1].image_guid,
+	ret = fwu_open(&g_fwu_cached_directory.entries[image_index - 1].img_type_guid,
 		       FWU_OP_TYPE_WRITE, &handle);
 	if (ret)
 		goto cancel_staging;
@@ -898,7 +899,7 @@ static int fwu_esrt_sanity_check(void)
 	}
 
 	for (i = 0; i < g_fwu_cached_directory.num_images; i++) {
-		if (guidcmp(&g_fwu_cached_directory.entries[i].image_guid,
+		if (guidcmp(&g_fwu_cached_directory.entries[i].img_type_guid,
 			    &g_esrt_data.data.entries[i].fw_class)) {
 			log_err("FWU: GUID mismatch for image %d\n", i + 1);
 			return -EINVAL;
@@ -1148,31 +1149,26 @@ failure:
 /**
  * fwu_one_image_accepted() - Accept one image in trial state
  *
- * @img_entry: Pointer to the image entry.
- * @active_idx: Active bank index.
+ * @image_type_guid: Pointer to the image_type_guid.
  * @image_number: Image number for logging purposes.
  *
  * Description: Invoke FWU accept image ABI to accept the image.
  *
  * Return: true on success, false on failure.
  */
-static bool fwu_one_image_accepted(const struct fwu_image_entry *img_entry,
-				   u32 active_idx,
+static bool fwu_one_image_accepted(const efi_guid_t *img_type_guid,
 				   u32 image_number)
 {
-	const struct fwu_image_bank_info *bank_info =
-		&img_entry->img_bank_info[active_idx];
 	int fwu_ret;
 
-	if (!bank_info->accepted) {
-		fwu_ret = fwu_accept(&bank_info->image_guid);
-		if (fwu_ret) {
-			log_err("FWU: Failed to accept image #%d\n",
-				image_number + 1);
-			return false;
-		}
-		log_debug("FWU: Image #%d accepted\n", image_number + 1);
+	fwu_ret = fwu_accept(img_type_guid);
+	if (fwu_ret) {
+		log_err("FWU: Failed to accept image #%d\n",
+			image_number + 1);
+		return false;
 	}
+
+	log_debug("FWU: Image #%d accepted\n", image_number + 1);
 
 	return true;
 }
@@ -1180,29 +1176,23 @@ static bool fwu_one_image_accepted(const struct fwu_image_entry *img_entry,
 /**
  * fwu_all_images_accepted() - Accept any pending firmware update images
  *
- * @fwu_data: Pointer to FWU data structure
- *
- * Description: Read from the metadata the acceptance state of each image.
- * Then, accept the images which are not accepted yet.
+ * Description: Read the acceptance state of each image from the cached image
+ * directory. Then, accept the images which are not accepted yet.
  *
  * Return: true on success, false on failure.
  */
-static bool fwu_all_images_accepted(const struct fwu_data *fwu_data)
+static bool fwu_all_images_accepted(void)
 {
-	int fwu_ret;
-	u32 active_idx;
 	u32 i;
 	bool accepted;
+	struct fwu_image_info_entry *entry;
 
-	fwu_ret = fwu_get_active_index(&active_idx);
-	if (fwu_ret) {
-		log_err("FWU: Failed to read boot index, err (%d)\n",
-			fwu_ret);
-		return false;
-	}
+	for (i = 0; i < g_fwu_cached_directory.num_images; i++) {
+		entry = &g_fwu_cached_directory.entries[i];
+		if (entry->accepted)
+			continue;
 
-	for (i = 0 ; i < CONFIG_FWU_NUM_IMAGES_PER_BANK ; i++) {
-		accepted = fwu_one_image_accepted(&fwu_data->fwu_images[i], active_idx, i);
+		accepted = fwu_one_image_accepted(&entry->img_type_guid, i);
 		if (!accepted)
 			return false;
 	}
@@ -1239,19 +1229,11 @@ static void EFIAPI fwu_accept_notify_exit_boot_services(struct efi_event *event,
 {
 	efi_status_t efi_ret = EFI_SUCCESS;
 	bool all_accepted;
-	struct fwu_data *fwu_data;
 
 	EFI_ENTRY("%p, %p", event, context);
 
-	fwu_data = fwu_get_data();
-	if (!fwu_data) {
-		log_err("FWU: Cannot get FWU data\n");
-		efi_ret = EFI_INVALID_PARAMETER;
-		goto out;
-	}
-
-	if (fwu_data->trial_state) {
-		all_accepted = fwu_all_images_accepted(fwu_data);
+	if (g_in_trial) {
+		all_accepted = fwu_all_images_accepted();
 		if (!all_accepted) {
 			efi_ret = EFI_ACCESS_DENIED;
 			goto out;
@@ -1304,26 +1286,7 @@ static int fwu_setup_accept_event(void)
 int fwu_agent_init(void)
 {
 	int ret;
-	struct fwu_data *fwu_data;
-	u32 active_idx;
-
-	fwu_data = fwu_get_data();
-	if (!fwu_data) {
-		log_err("FWU: Cannot get FWU data\n");
-		return -EINVAL;
-	}
-
-	ret = fwu_get_active_index(&active_idx);
-	if (ret) {
-		log_err("FWU: Failed to read boot index, err (%d)\n",
-			ret);
-		return ret;
-	}
-
-	if (fwu_data->trial_state)
-		log_info("FWU: System booting in Trial State\n");
-	else
-		log_info("FWU: System booting in Regular State\n");
+	int i;
 
 	ret = uclass_first_device_err(UCLASS_FFA, &g_dev);
 	if (ret) {
@@ -1348,6 +1311,22 @@ int fwu_agent_init(void)
 		if (ret)
 			goto failure;
 	}
+
+	ret = fwu_read_directory();
+	if (ret)
+		goto failure;
+
+	for (i = 0; i < g_fwu_cached_directory.num_images; i++) {
+		if (g_fwu_cached_directory.entries[i].accepted == 0) {
+			g_in_trial = true;
+			break;
+		}
+	}
+
+	if (g_in_trial)
+		log_info("FWU: System booting in Trial State\n");
+	else
+		log_info("FWU: System booting in Regular State\n");
 
 	g_fwu_initialized = true;
 
@@ -1398,10 +1377,6 @@ efi_status_t efi_fill_image_desc_array(efi_uintn_t *image_info_size,
 			return EFI_EXIT(EFI_DEVICE_ERROR);
 		}
 	}
-
-	ret = fwu_read_directory();
-	if (ret)
-		return EFI_NOT_READY;
 
 	ret = fwu_read_esrt();
 	if (ret)
@@ -1463,5 +1438,66 @@ efi_status_t efi_fill_image_desc_array(efi_uintn_t *image_info_size,
 		image_info[i].dependencies = NULL; /* Not supported */
 	}
 
+	return EFI_SUCCESS;
+}
+
+u8 fwu_empty_capsule_checks_pass(void)
+{
+	return g_in_trial;
+}
+
+u8 fwu_update_checks_pass(void)
+{
+	return !g_in_trial;
+}
+
+/*
+ * When U-Boot takes the role of Update Client, the active bank and update bank
+ * are managed and determined by Update Agent in the Secure World.
+ * Return a dummy bank index from fwu_get_active_index() and
+ * fwu_plat_get_update_index(), the dummy bank index which will be ignored in
+ * capsule handling, fwu_clear_accept_image() and fwu_accept_image().
+ */
+int fwu_get_active_index(uint *active_idx)
+{
+	if (!active_idx)
+		return -EINVAL;
+
+	*active_idx = 0x0;
+	return 0;
+}
+
+int fwu_plat_get_update_index(uint *update_idx)
+{
+	if (!update_idx)
+		return -1;
+
+	*update_idx = 0x0;
+	return 0;
+}
+
+int fwu_accept_image(efi_guid_t *img_type_id, u32 bank)
+{
+	(void)img_type_id;
+	(void)bank;
+
+	/*
+	 * In case of Arm PSA accepting images is either
+	 * at ExitBootServices() or in the OS. So, let's skip setting the
+	 * acceptance bit (not used in Arm PSA)
+	 */
+	return EFI_SUCCESS;
+}
+
+int fwu_clear_accept_image(efi_guid_t *img_type_id, u32 bank)
+{
+	(void)img_type_id;
+	(void)bank;
+
+	/*
+	 * In case of Arm PSA accepting images is either
+	 * at ExitBootServices() or in the OS. So, let's skip clearing the
+	 * acceptance bit (not used in Arm PSA)
+	 */
 	return EFI_SUCCESS;
 }

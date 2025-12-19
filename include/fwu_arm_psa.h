@@ -338,7 +338,7 @@ struct __packed fwu_accept_image_resp {
  */
 
 struct __packed fwu_image_info_entry {
-	efi_guid_t image_guid;
+	efi_guid_t img_type_guid;
 	u32 client_permissions;
 	u32 img_max_size;
 	u32 lowest_acceptable_version;
