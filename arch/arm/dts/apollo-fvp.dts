@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * Device tree for the Apollo FVP U-Boot platform model
+ *
+ * Copyright 2022, 2026 Arm Ltd.
+ */
+
+/dts-v1/;
+
+/ {
+	model = "Apollo FVP";
+	compatible = "arm,apollo-fvp", "arm,vexpress";
+};
