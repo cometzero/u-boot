@@ -54,6 +54,13 @@ config TARGET_VEXPRESS64_JUNO
 
 endchoice
 
+config APOLLO_FVP_FW_IMAGES
+	bool "Use Apollo FVP FWU image descriptors"
+	depends on TARGET_VEXPRESS64_BASE_FVP
+	help
+	  Select the Apollo FVP capsule update image table while keeping the
+	  Versatile Express FVP board model and device tree.
+
 config JUNO_DTB_PART
 	string "NOR flash partition holding DTB"
 	default "board.dtb"

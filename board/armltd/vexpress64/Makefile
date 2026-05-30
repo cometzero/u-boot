@@ -11,6 +11,11 @@ obj-$(CONFIG_TARGET_VEXPRESS64_JUNO)	+= pcie.o
 
 ifeq ($(RD_ASPEN_VARIANT),cfg2)
 ccflags-y += -DRD_ASPEN_VARIANT_CFG2
+ccflags-$(CONFIG_APOLLO_FVP_FW_IMAGES) += -DAPOLLO_FVP_VARIANT_CFG2
 endif
 
+ifeq ($(CONFIG_APOLLO_FVP_FW_IMAGES),y)
+obj-$(CONFIG_EFI_HAVE_CAPSULE_SUPPORT)	+= apollo_fvp_fw_images.o
+else
 obj-$(CONFIG_EFI_HAVE_CAPSULE_SUPPORT)	+= rdaspen_fw_images.o
+endif
