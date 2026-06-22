@@ -1112,6 +1112,15 @@ config CMD_BCB
 	    https://android.googlesource.com/platform/bootable/recovery
 	  - Inspect/dump the contents of the BCB fields
 
+config CMD_AUTO_AD_NEXIOS_BOOTSELECT
+	bool "aanxbootselect"
+	depends on PARTITIONS && BLK
+	select CRC32
+	help
+	  Read the auto-ad-nexios A/B boot state from the GPT misc partition
+	  and export the selected slot, boot partition, and UKI path as U-Boot
+	  environment variables.
+
 config CMD_BIND
 	bool "bind/unbind - Bind or unbind a device to/from a driver"
 	depends on DM
