@@ -1,7 +1,36 @@
 CONFIG_ARM=y
 # CONFIG_ARM64_CRC32 is not set
 CONFIG_ARCH_VEXPRESS64=y
+CONFIG_SYS_MALLOC_LEN=0x8E0000
 CONFIG_DEFAULT_DEVICE_TREE="apollo-fvp"
 CONFIG_IDENT_STRING=" apollo_fvp"
-# CONFIG_DISPLAY_CPUINFO is not set
 CONFIG_APOLLO_FVP_FW_IMAGES=y
+CONFIG_FWU_NUM_IMAGES_PER_BANK=5
+CONFIG_EFI_SECURE_BOOT=y
+CONFIG_EFI_MM_COMM_TEE=y
+CONFIG_FFA_SHARED_MM_BUF_SIZE=8192
+CONFIG_FFA_SHARED_MM_BUF_OFFSET=0
+CONFIG_FFA_SHARED_MM_BUF_ADDR=0xffbf0000
+CONFIG_EFI_VAR_BUF_SIZE=65536
+CONFIG_EFI_RUNTIME_UPDATE_CAPSULE=y
+CONFIG_EFI_CAPSULE_ON_DISK=y
+CONFIG_EFI_CAPSULE_FIRMWARE_RAW=y
+CONFIG_EFI_CAPSULE_AUTHENTICATE=y
+CONFIG_FIT=y
+CONFIG_FIT_SIGNATURE=y
+CONFIG_BOOTSTD_DEFAULTS=y
+CONFIG_BOOTCOMMAND="virtio scan; if aanxbootselect; then echo auto-ad-nexios: loading ${aanx_uki} from virtio 0:${aanx_boot_part}; if load virtio 0:${aanx_boot_part} ${loadaddr} ${aanx_uki}; then bootefi ${loadaddr}; else echo auto-ad-nexios: missing selected UKI ${aanx_uki}, trying fallback ${aanx_fallback_uki}; if load virtio 0:${aanx_fallback_boot_part} ${loadaddr} ${aanx_fallback_uki}; then bootefi ${loadaddr}; fi; fi; fi; bootflow scan"
+# CONFIG_DISPLAY_CPUINFO is not set
+CONFIG_CMD_NVEDIT_EFI=y
+CONFIG_CMD_AUTO_AD_NEXIOS_BOOTSELECT=y
+CONFIG_CMD_EFIDEBUG=y
+CONFIG_ARM_FFA_TRANSPORT=y
+# CONFIG_RNG_SMCCC_TRNG is not set
+CONFIG_TEE=y
+CONFIG_OPTEE=y
+# CONFIG_HEXDUMP is not set
+# CONFIG_OPTEE_LIB is not set
+CONFIG_FWU_MULTI_BANK_UPDATE=y
+CONFIG_FWU_ARM_PSA=y
+# CONFIG_FWU_KEEP_FMP_HEADER is not set
+# CONFIG_TOOLS_MKFWUMDATA is not set
