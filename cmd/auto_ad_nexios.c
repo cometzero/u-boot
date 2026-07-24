@@ -2,6 +2,7 @@
 #include <blk.h>
 #include <command.h>
 #include <env.h>
+#include <fs.h>
 #include <malloc.h>
 #include <part.h>
 #include <u-boot/crc.h>
@@ -12,8 +13,7 @@
 #define AANX_DEV_IFACE		"virtio"
 #define AANX_DEV_NUM		0
 #define AANX_MISC_PART		"misc"
-#define AANX_BOOT_A_PART	"boot_a"
-#define AANX_BOOT_B_PART	"boot_b"
+#define AANX_BOOT_PART		"boot"
 #define AANX_MAGIC		"AANXBOOT"
 #define AANX_MAGIC_LEN		8
 #define AANX_VERSION		1
@@ -21,6 +21,7 @@
 #define AANX_CRC_OFFSET		0x18
 #define AANX_SLOT_A		0
 #define AANX_SLOT_B		1
+#define AANX_METADATA_MAX_SIZE	32
 
 struct aanx_misc_state {
 	u8 magic[AANX_MAGIC_LEN];
@@ -37,8 +38,10 @@ struct aanx_slot_info {
 	int value;
 	const char *upper;
 	const char *lower;
-	const char *part_name;
 	const char *uki;
+	const char *metadata;
+	const char *metadata_value;
+	size_t metadata_size;
 };
 
 static const struct aanx_slot_info aanx_slots[] = {
@@ -46,15 +49,19 @@ static const struct aanx_slot_info aanx_slots[] = {
 		.value = AANX_SLOT_A,
 		.upper = "A",
 		.lower = "a",
-		.part_name = AANX_BOOT_A_PART,
-		.uki = "EFI/Linux/auto-ad-nexios-a.efi",
+		.uki = "EFI/Linux/a-slot/auto-ad-nexios-a.efi",
+		.metadata = "EFI/Linux/a-slot/metadata",
+		.metadata_value = "slot=A\n",
+		.metadata_size = sizeof("slot=A\n") - 1,
 	},
 	{
 		.value = AANX_SLOT_B,
 		.upper = "B",
 		.lower = "b",
-		.part_name = AANX_BOOT_B_PART,
-		.uki = "EFI/Linux/auto-ad-nexios-b.efi",
+		.uki = "EFI/Linux/b-slot/auto-ad-nexios-b.efi",
+		.metadata = "EFI/Linux/b-slot/metadata",
+		.metadata_value = "slot=B\n",
+		.metadata_size = sizeof("slot=B\n") - 1,
 	},
 };
 
@@ -145,14 +152,38 @@ static int aanx_get_partnum(struct blk_desc *desc, const char *name)
 	return part_get_info_by_name(desc, name, &part);
 }
 
+static int aanx_validate_slot_metadata(int boot_part,
+				       const struct aanx_slot_info *slot)
+{
+	char dev_part[16];
+	ulong size;
+	void *buf;
+	int ret;
+
+	snprintf(dev_part, sizeof(dev_part), "%d:%d", AANX_DEV_NUM, boot_part);
+	ret = fs_load_alloc(AANX_DEV_IFACE, dev_part, slot->metadata,
+			    AANX_METADATA_MAX_SIZE, 0, &buf, &size);
+	if (ret)
+		return ret;
+
+	ret = size == slot->metadata_size &&
+	      !memcmp(buf, slot->metadata_value, slot->metadata_size) ?
+	      0 : -EINVAL;
+	free(buf);
+
+	return ret;
+}
+
 static int do_aanxbootselect(struct cmd_tbl *cmdtp, int flag, int argc,
 			     char *const argv[])
 {
 	const struct aanx_slot_info *fallback;
 	const struct aanx_slot_info *selected;
 	struct blk_desc *desc;
-	int selected_part;
-	int fallback_part;
+	bool fallback_valid;
+	int boot_part;
+	int fallback_metadata;
+	int selected_metadata;
 	int slot;
 
 	if (argc != 1)
@@ -172,19 +203,41 @@ static int do_aanxbootselect(struct cmd_tbl *cmdtp, int flag, int argc,
 	fallback = aanx_slot_by_value(slot == AANX_SLOT_A ? AANX_SLOT_B :
 				      AANX_SLOT_A);
 
-	selected_part = aanx_get_partnum(desc, selected->part_name);
-	fallback_part = aanx_get_partnum(desc, fallback->part_name);
-	if (selected_part < 0 || fallback_part < 0)
+	boot_part = aanx_get_partnum(desc, AANX_BOOT_PART);
+	if (boot_part < 0)
 		return CMD_RET_FAILURE;
+
+	selected_metadata = aanx_validate_slot_metadata(boot_part, selected);
+	fallback_metadata = aanx_validate_slot_metadata(boot_part, fallback);
+	if (selected_metadata && fallback_metadata) {
+		printf("auto-ad-nexios: no valid slot metadata in %s\n",
+		       AANX_BOOT_PART);
+		return CMD_RET_FAILURE;
+	}
+
+	if (selected_metadata) {
+		const struct aanx_slot_info *invalid = selected;
+
+		selected = fallback;
+		fallback = invalid;
+		fallback_valid = false;
+		printf("auto-ad-nexios: preferred slot metadata invalid, "
+		       "selecting slot %s\n", selected->upper);
+	} else {
+		fallback_valid = !fallback_metadata;
+		if (!fallback_valid)
+			printf("auto-ad-nexios: slot %s metadata invalid, "
+			       "fallback disabled\n", fallback->upper);
+	}
 
 	if (aanx_set_env("aanx_slot", selected->upper) ||
 	    aanx_set_env("aanx_slot_lower", selected->lower) ||
 	    aanx_set_env("aanx_uki", selected->uki) ||
-	    aanx_set_part_env("aanx_boot_part", selected_part) ||
+	    aanx_set_part_env("aanx_boot_part", boot_part) ||
 	    aanx_set_env("aanx_fallback_slot", fallback->upper) ||
 	    aanx_set_env("aanx_fallback_slot_lower", fallback->lower) ||
 	    aanx_set_env("aanx_fallback_uki", fallback->uki) ||
-	    aanx_set_part_env("aanx_fallback_boot_part", fallback_part))
+	    aanx_set_env("aanx_fallback_valid", fallback_valid ? "1" : "0"))
 		return CMD_RET_FAILURE;
 
 	printf("auto-ad-nexios: selected slot %s\n", selected->upper);

@@ -1116,10 +1116,12 @@ config CMD_AUTO_AD_NEXIOS_BOOTSELECT
 	bool "aanxbootselect"
 	depends on PARTITIONS && BLK
 	select CRC32
+	select FS_FAT
 	help
 	  Read the auto-ad-nexios A/B boot state from the GPT misc partition
-	  and export the selected slot, boot partition, and UKI path as U-Boot
-	  environment variables.
+	  and validate the slot metadata in the single GPT boot partition.
+	  Export the selected slot, boot partition, UKI path, and fallback state
+	  as U-Boot environment variables.
 
 config CMD_BIND
 	bool "bind/unbind - Bind or unbind a device to/from a driver"

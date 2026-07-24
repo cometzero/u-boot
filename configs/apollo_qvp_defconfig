@@ -19,7 +19,7 @@ CONFIG_EFI_CAPSULE_AUTHENTICATE=y
 CONFIG_FIT=y
 CONFIG_FIT_SIGNATURE=y
 CONFIG_BOOTSTD_DEFAULTS=y
-CONFIG_BOOTCOMMAND="virtio scan; if aanxbootselect; then echo auto-ad-nexios: loading ${aanx_uki} from virtio 0:${aanx_boot_part}; if load virtio 0:${aanx_boot_part} ${loadaddr} ${aanx_uki}; then bootefi ${loadaddr}; else echo auto-ad-nexios: missing selected UKI ${aanx_uki}, trying fallback ${aanx_fallback_uki}; if load virtio 0:${aanx_fallback_boot_part} ${loadaddr} ${aanx_fallback_uki}; then bootefi ${loadaddr}; fi; fi; fi; bootflow scan"
+CONFIG_BOOTCOMMAND="virtio scan; if aanxbootselect; then echo auto-ad-nexios: loading ${aanx_uki} from virtio 0:${aanx_boot_part}; if load virtio 0:${aanx_boot_part} ${loadaddr} ${aanx_uki}; then bootefi ${loadaddr}; fi; if test ${aanx_fallback_valid} = 1; then echo auto-ad-nexios: trying fallback ${aanx_fallback_uki}; if load virtio 0:${aanx_boot_part} ${loadaddr} ${aanx_fallback_uki}; then bootefi ${loadaddr}; fi; fi; fi; bootflow scan"
 # CONFIG_DISPLAY_CPUINFO is not set
 CONFIG_CMD_NVEDIT_EFI=y
 CONFIG_CMD_AUTO_AD_NEXIOS_BOOTSELECT=y
